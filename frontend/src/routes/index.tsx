@@ -14,13 +14,19 @@ function SourceChip({ source }: { source: Source }) {
     (source.doi ? `DOI: ${source.doi}\n` : "") +
     (source.venue ? `${source.venue}\n` : "") +
     (source.authors.length ? source.authors.join(", ") : "");
+  const href = source.doi
+    ? `https://doi.org/${encodeURIComponent(source.doi)}`
+    : `https://explore.openaire.eu/search/find?keyword=${encodeURIComponent(source.title)}`;
   return (
-    <span
+    <a
+      href={href}
+      target="_blank"
+      rel="noreferrer"
       title={tooltip}
       className="source-chip"
     >
       {label}
-    </span>
+    </a>
   );
 }
 
@@ -75,21 +81,22 @@ function DebateAgent({
 function ConsensusMeter({ asymmetry }: { asymmetry: number }) {
   const forPercentage = (1 - asymmetry) * 100;
   const againstPercentage = asymmetry * 100;
+  const consensusStrength = Math.abs(asymmetry - 0.5) * 2;
   
   // Determine consensus level
   let consensusLevel = "BALANCED";
   let consensusColor = "#64748b";
   
-  if (asymmetry > 0.85) {
+  if (consensusStrength > 0.7) {
     consensusLevel = "STRONG CONSENSUS";
     consensusColor = "#10b981";
-  } else if (asymmetry > 0.7) {
+  } else if (consensusStrength > 0.4) {
     consensusLevel = "MODERATE CONSENSUS";
     consensusColor = "#3b82f6";
-  } else if (asymmetry < 0.3) {
+  } else if (consensusStrength < 0.1) {
     consensusLevel = "STRONG DISAGREEMENT";
     consensusColor = "#ef4444";
-  } else if (asymmetry < 0.45) {
+  } else if (consensusStrength < 0.25) {
     consensusLevel = "MODERATE DISAGREEMENT";
     consensusColor = "#f59e0b";
   }
@@ -196,7 +203,9 @@ function DebateSection({
       <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
         {/* FOR Agents */}
         {forClaims.slice(0, forVisible).map((claim, i) => {
-          const sources = brief.position_for.sources.slice(i, i + 1);
+          const sources = claim.cites
+            .map((id) => brief.citation_sources?.[id])
+            .filter((source): source is Source => Boolean(source));
           return (
             <DebateAgent
               key={`for-${i}`}
@@ -211,7 +220,9 @@ function DebateSection({
         
         {/* AGAINST Agents */}
         {againstClaims.slice(0, againstVisible).map((claim, i) => {
-          const sources = brief.position_against.sources.slice(i, i + 1);
+          const sources = claim.cites
+            .map((id) => brief.citation_sources?.[id])
+            .filter((source): source is Source => Boolean(source));
           return (
             <DebateAgent
               key={`against-${i}`}
@@ -323,12 +334,9 @@ export function DevilsAdvocates() {
     const demo = DEMO_OPTIONS.find((d) => d.id === id);
     setDemoId(id);
     if (demo) {
-      import("@/lib/brief-mocks").then((m) => {
-        const claim = m.MOCK_BRIEFS[id].claim;
-        setInput(claim);
-        setChatMessages(prev => [...prev, { text: claim, isUser: true }]);
-        setRunId((n) => n + 1);
-      });
+      setInput(demo.claim);
+      setChatMessages(prev => [...prev, { text: demo.claim, isUser: true }]);
+      setRunId((n) => n + 1);
     }
   };
 
@@ -346,6 +354,18 @@ export function DevilsAdvocates() {
       setChatMessages(prev => [...prev, { text: chatInput, isUser: true }]);
       setChatInput("");
     }
+  };
+
+  const resetDebate = () => {
+    setInput("");
+    setDemoId(undefined);
+    setBrief(null);
+    setLoading(false);
+    setDebateComplete(false);
+    setError("");
+    setChatMessages([]);
+    setChatInput("");
+    setShowClarification(false);
   };
 
   const displayedClaim = useMemo(() => brief?.claim ?? input, [brief, input]);
@@ -463,13 +483,19 @@ export function DevilsAdvocates() {
       {error && (
         <div className="question-display">
           <p className="question-text">⚠️ {error}</p>
+          <button type="button" className="secondary-button" onClick={resetDebate}>
+            Try another question
+          </button>
         </div>
       )}
 
       {/* Question display */}
-      {brief && (
+      {brief && !error && (
         <div className="question-display">
           <p className="question-text">❓ "{displayedClaim}"</p>
+          <button type="button" className="secondary-button" onClick={resetDebate}>
+            {loading ? "Stop debate" : "New debate"}
+          </button>
         </div>
       )}
 

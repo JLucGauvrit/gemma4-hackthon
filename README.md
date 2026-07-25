@@ -44,14 +44,27 @@ E4B for the judge).
 
 ## Live UI
 
-Serve the dependency-free live UI:
+Build the teammate's React UI once, then serve it with the debate API:
 
 ```
+cd frontend
+npm ci
+npm run build
+cd ..
 uv run python -m api.server
 ```
 
 Then open `http://127.0.0.1:8765`. The UI calls the real pipeline through
-server-sent events; it does not use mocked results.
+server-sent events; it does not use mocked results. The Python server serves
+`frontend/dist` and the API from the same public port, so this is also the
+production build sequence.
+
+For frontend development, run the API and Vite in separate terminals:
+
+```
+uv run python -m api.server
+cd frontend && npm run dev
+```
 
 ### Example queries
 

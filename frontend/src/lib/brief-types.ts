@@ -41,6 +41,7 @@ export interface Brief {
   claim: string;
   position_for: Position;
   position_against: Position;
+  citation_sources?: Record<string, Source>;
   crux: string;
   crux_type: CruxType;
   resolver: string;

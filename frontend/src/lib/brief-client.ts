@@ -31,6 +31,7 @@ function emptyBrief(claim: string): Brief {
     claim,
     position_for: { summary: "", claims: [], sources: [] },
     position_against: { summary: "", claims: [], sources: [] },
+    citation_sources: {},
     crux: "The agents are examining the evidence.",
     crux_type: "none",
     resolver: "The judge will identify what would resolve the disagreement.",
@@ -44,12 +45,19 @@ function sourcesForClaims(
   snippets: Map<string, Snippet>,
   fallback: Source[],
 ): Source[] {
-  return claims.map((claim, index) => {
-    const cited = claim.cites
+  const cited = claims.flatMap((claim) =>
+    claim.cites
       .map((id) => snippets.get(id)?.source)
-      .find((source): source is Source => Boolean(source));
-    return cited ?? fallback[index] ?? fallback[0];
-  }).filter((source): source is Source => Boolean(source));
+      .filter((source): source is Source => Boolean(source)),
+  );
+  const candidates = cited.length ? cited : fallback;
+  return candidates.filter(
+    (source, index) =>
+      candidates.findIndex(
+        (candidate) =>
+          candidate.doi === source.doi && candidate.title === source.title,
+      ) === index,
+  );
 }
 
 function normalizeBrief(brief: Brief, snippets: Map<string, Snippet>): Brief {
@@ -66,18 +74,21 @@ function normalizeBrief(brief: Brief, snippets: Map<string, Snippet>): Brief {
 
   const rawAsymmetry = brief.asymmetry;
   const dominant = brief.meta?.dominant;
-  const againstIsDominant =
-    dominant === "REFUTES" ||
-    (dominant !== "SUPPORTS" &&
-      brief.position_against.sources.length > brief.position_for.sources.length);
+  const againstIsDominant = dominant === "REFUTES";
   // Python uses 0=balanced and 1=one-sided. The original visual meter uses
   // 0=FOR, .5=balanced, and 1=AGAINST, so adapt only at this UI boundary.
   const directionalAsymmetry =
-    0.5 + (againstIsDominant ? rawAsymmetry / 2 : -rawAsymmetry / 2);
+    brief.verdict === "CONSENSUS"
+      ? 0.5 + (againstIsDominant ? rawAsymmetry / 2 : -rawAsymmetry / 2)
+      : 0.5;
+  const citationSources = Object.fromEntries(
+    Array.from(snippets, ([id, snippet]) => [id, snippet.source]),
+  );
 
   return {
     ...brief,
     asymmetry: directionalAsymmetry,
+    citation_sources: citationSources,
     meta: { ...brief.meta, backend_asymmetry: rawAsymmetry },
     position_for: {
       ...brief.position_for,
@@ -140,18 +151,25 @@ export function fetchBrief(input: FetchBriefInput): Promise<Brief> {
         publish();
       } else if (event.type === "snippet") {
         snippets.set(event.snippet.id, event.snippet);
+        draft = {
+          ...draft,
+          citation_sources: {
+            ...draft.citation_sources,
+            [event.snippet.id]: event.snippet.source,
+          },
+        };
       } else if (event.type === "turn_claim") {
         const key = event.side === "FOR" ? "position_for" : "position_against";
         const position = draft[key];
-        const citedSource = event.claim.cites
+        const citedSources = event.claim.cites
           .map((id) => snippets.get(id)?.source)
-          .find((candidate): candidate is Source => Boolean(candidate));
+          .filter((candidate): candidate is Source => Boolean(candidate));
         draft = {
           ...draft,
           [key]: {
             ...position,
             claims: [...position.claims, event.claim],
-            sources: citedSource ? [...position.sources, citedSource] : position.sources,
+            sources: [...position.sources, ...citedSources],
           },
         };
         publish();
