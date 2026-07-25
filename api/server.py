@@ -17,6 +17,7 @@ from core.schema import Config
 ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIST_ROOT = ROOT / "frontend" / "dist"
 UI_ROOT = ROOT / "ui"
+SSE_HEARTBEAT_SECONDS = 12.0
 
 
 def _jsonable(value):
@@ -72,19 +73,53 @@ class DemoHandler(BaseHTTPRequestHandler):
         self.end_headers()
 
         async def emit() -> None:
+            queue: asyncio.Queue[dict | object] = asyncio.Queue()
+            finished = object()
+
+            async def produce() -> None:
+                try:
+                    async for event in run(question, cfg):
+                        await queue.put(event)
+                finally:
+                    await queue.put(finished)
+
+            producer = asyncio.create_task(produce())
             try:
                 self.wfile.write(_sse("status", {"type": "status", "message": "starting"}))
                 self.wfile.flush()
-                async for event in run(question, cfg):
+                while True:
+                    try:
+                        event = await asyncio.wait_for(
+                            queue.get(),
+                            timeout=SSE_HEARTBEAT_SECONDS,
+                        )
+                    except TimeoutError:
+                        self.wfile.write(b": heartbeat\n\n")
+                        self.wfile.flush()
+                        continue
+                    if event is finished:
+                        break
+                    assert isinstance(event, dict)
                     self.wfile.write(_sse(str(event.get("type", "message")), event))
                     self.wfile.flush()
+                await producer
                 self.wfile.write(_sse("done", {"type": "done"}))
                 self.wfile.flush()
-            except BrokenPipeError:
+            except (BrokenPipeError, ConnectionResetError):
                 return
             except Exception as exc:
-                self.wfile.write(_sse("error", {"type": "error", "message": str(exc)}))
-                self.wfile.flush()
+                try:
+                    self.wfile.write(_sse("error", {"type": "error", "message": str(exc)}))
+                    self.wfile.flush()
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+            finally:
+                if not producer.done():
+                    producer.cancel()
+                try:
+                    await producer
+                except (asyncio.CancelledError, Exception):
+                    pass
 
         asyncio.run(emit())
         self.close_connection = True

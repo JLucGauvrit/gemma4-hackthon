@@ -43,6 +43,8 @@ def parse_sse(body: bytes) -> list[tuple[str, dict]]:
     events = []
     for frame in body.decode("utf-8").strip().split("\n\n"):
         lines = frame.splitlines()
+        if not lines or lines[0].startswith(":"):
+            continue
         event_type = next(line[7:] for line in lines if line.startswith("event: "))
         data = next(line[6:] for line in lines if line.startswith("data: "))
         events.append((event_type, json.loads(data)))
@@ -159,6 +161,22 @@ class ApiIntegrationTests(unittest.TestCase):
                 ("brief", {"type": "brief", "claim": "Does it work?"}),
                 ("done", {"type": "done"}),
             ],
+        )
+
+    def test_stream_sends_heartbeat_comments_while_pipeline_is_quiet(self):
+        async def slow_run(question, config):
+            await api_server.asyncio.sleep(0.03)
+            yield {"type": "brief", "claim": question}
+
+        with patch.object(api_server, "SSE_HEARTBEAT_SECONDS", 0.01):
+            with running_api(slow_run) as address:
+                status, _, body = get(address, "/api/run?question=Still+there%3F")
+
+        self.assertEqual(status, 200)
+        self.assertIn(b"\n\n: heartbeat\n\n", body)
+        self.assertEqual(
+            [event_type for event_type, _ in parse_sse(body)],
+            ["status", "brief", "done"],
         )
 
     def test_stream_preserves_pipeline_order_and_shared_evidence_option(self):
