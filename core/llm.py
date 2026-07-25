@@ -1,12 +1,12 @@
-"""The one seam between the pipeline and Gemma.
+"""The one seam between the pipeline and Gemma served by vLLM.
 
-Every model-driven stage goes through `generate(role, prompt, tier)`. Today that
-hits a local Ollama serving Gemma 4; swap `_ollama` for a Brev/OpenAI-compatible
-call at deploy time and nothing upstream changes.
+Every model-driven stage goes through `generate(role, prompt, tier)`. vLLM
+exposes an OpenAI-compatible API, so the pipeline has no dependency on a
+particular inference server implementation.
 
-`GEMMA_MODEL` forces every role onto one model (run all-E4B before you've pulled
-E2B). Unset it once `ollama pull gemma4:e2b` is done — that's the Track-03 run
-(E2B for extract/stance/advocate, E4B only for the judge).
+`GEMMA_MODEL` forces every role onto one served model. Otherwise
+`VLLM_MODEL_E2B` and `VLLM_MODEL_E4B` select the model for each tier; both
+default to `VLLM_MODEL`, making a single-checkpoint deployment the default.
 """
 
 from __future__ import annotations
@@ -15,27 +15,44 @@ import json
 import os
 import re
 
-# tier -> Ollama model tag. Overridden wholesale by GEMMA_MODEL.
-_OLLAMA_MODEL = {"E2B": "gemma4:e2b", "E4B": "gemma4:e4b"}
+def _model_for(tier: str) -> str:
+    """Return the vLLM served-model name for a configured tier."""
+    if tier not in {"E2B", "E4B"}:
+        raise ValueError(f"unknown model tier: {tier}")
+    model = (
+        os.environ.get("GEMMA_MODEL")
+        or os.environ.get(f"VLLM_MODEL_{tier}")
+        or os.environ.get("VLLM_MODEL")
+    )
+    if model is None:
+        raise RuntimeError(
+            "set VLLM_MODEL (or VLLM_MODEL_E2B/VLLM_MODEL_E4B) to the "
+            "served Gemma model name"
+        )
+    return model
 
 
 async def generate(role: str, prompt: str, *, tier: str = "E2B") -> str:
     """Return Gemma's text for `role` at `tier`. All our roles emit JSON."""
     import httpx
 
-    model = os.environ.get("GEMMA_MODEL") or _OLLAMA_MODEL[tier]
-    url = os.environ.get("OLLAMA_URL", "http://localhost:11434") + "/api/generate"
+    model = _model_for(tier)
+    base_url = os.environ.get("VLLM_BASE_URL", "http://localhost:8000/v1").rstrip("/")
+    url = f"{base_url}/chat/completions"
     payload = {
         "model": model,
-        "prompt": prompt,
+        "messages": [{"role": "user", "content": prompt}],
         "stream": False,
-        "format": "json",               # constrain output to valid JSON
-        "options": {"temperature": 0},  # deterministic extraction/classification
+        "temperature": 0,                 # deterministic extraction/classification
+        "response_format": {"type": "json_object"},
     }
+    headers = {}
+    if api_key := os.environ.get("VLLM_API_KEY"):
+        headers["Authorization"] = f"Bearer {api_key}"
     async with httpx.AsyncClient(timeout=180) as c:
-        r = await c.post(url, json=payload)
+        r = await c.post(url, json=payload, headers=headers)
         r.raise_for_status()
-        return r.json()["response"]
+        return r.json()["choices"][0]["message"]["content"]
 
 
 def parse_json(text: str):

@@ -22,7 +22,7 @@ RUN useradd --create-home --uid 10001 app \
     && chown -R app:app /app
 USER app
 
-# OAuth browser callback; it is published only by docker-compose.yml.
-EXPOSE 8765
+# Agent API and OAuth browser callback; both are published by docker-compose.yml.
+EXPOSE 8001 8765
 
-CMD ["python", "-m", "core.pipeline", "--selfcheck"]
+CMD ["python", "-m", "core.api"]

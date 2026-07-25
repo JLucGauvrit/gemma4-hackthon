@@ -8,7 +8,7 @@ Deploy the hackathon application on **NVIDIA Brev**, using:
 - Gemma 4 E4B served through vLLM's OpenAI-compatible API;
 - the orchestration application and UI on the same instance;
 - only the application port exposed publicly;
-- Ollama retained as the local development backend;
+- vLLM used as the inference backend in every environment;
 - cached, verified research results as a fallback for the live demo.
 
 This recommendation applies to the hackathon prototype. It is not a claim that
@@ -84,8 +84,7 @@ call a FastAPI orchestration service instead.
 
 ## Why vLLM Instead of Ollama on Brev
 
-Ollama remains useful for local development, but vLLM is the preferred Brev
-backend because:
+vLLM is the selected backend for both local development and Brev because:
 
 - it exposes a standard OpenAI-compatible API;
 - it is one of the frameworks named by the NVIDIA challenge;
@@ -96,7 +95,7 @@ backend because:
 The model boundary should therefore support at least:
 
 ```text
-stub -> Ollama -> vLLM/OpenAI-compatible API
+stub -> vLLM/OpenAI-compatible API
 ```
 
 The same pipeline should run against each backend without changing its domain
@@ -259,7 +258,7 @@ The public URL must be tested:
 ## Build Order
 
 1. Make stub mode explicit in CLI and UI output.
-2. Add a vLLM/OpenAI-compatible backend to `core/llm.py`.
+2. Configure `core/llm.py` with the served vLLM model name and endpoint.
 3. Configure the installed Gemma 4 E4B model correctly.
 4. Add claim-domain validation.
 5. Connect authenticated Alien retrieval.
@@ -292,9 +291,8 @@ submission requirement if a closed model performs the meaningful work.
 
 ### Ollama on Brev
 
-Acceptable as a fallback if vLLM support blocks progress. It is simpler, but
-provides a weaker NVIDIA challenge entry and fewer serving optimization
-controls.
+Not selected for this project. vLLM provides the OpenAI-compatible endpoint,
+batching, and serving metrics required by the deployment plan.
 
 ## Final Recommendation
 

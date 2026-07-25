@@ -1,10 +1,16 @@
 
 
 services:
-  ollama:
-    image: ollama/ollama:latest
-    volumes:
-      - ollama-models:/root/.ollama
+  vllm:
+    image: vllm/vllm-openai:latest
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        : "$${VLLM_MODEL:?set VLLM_MODEL to the Gemma checkpoint identifier}"
+        exec vllm serve "$${VLLM_MODEL}"
+    environment:
+      HUGGING_FACE_HUB_TOKEN: ${HUGGING_FACE_HUB_TOKEN:-}
+      VLLM_MODEL: ${VLLM_MODEL:-}
     deploy:
       resources:
         reservations:
@@ -17,20 +23,36 @@ services:
     build:
       context: .
     environment:
-      OLLAMA_URL: http://ollama:11434
+      VLLM_BASE_URL: http://vllm:8000/v1
+      VLLM_MODEL: ${VLLM_MODEL:-}
       DA_TOKEN_DIR: /home/app/.devils_advocates
       # The browser redirects to localhost:8765 on the host; Docker forwards it here.
       DA_CALLBACK_BIND_HOST: 0.0.0.0
     depends_on:
-      - ollama
+      - vllm
     ports:
+      - "127.0.0.1:8001:8001"
       - "127.0.0.1:8765:8765"
     volumes:
       - oauth-tokens:/home/app/.devils_advocates
     stdin_open: true
     tty: true
-    command: ["python", "-m", "core.pipeline", "--selfcheck"]
+    command: ["python", "-m", "core.api"]
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    depends_on:
+      - app
+    ports:
+      - "3000:8080"
+    environment:
+      ENABLE_OPENAI_API: "true"
+      OPENAI_API_BASE_URL: http://app:8001/v1
+      OPENAI_API_KEY: unused
+    volumes:
+      - open-webui:/app/backend/data
+    restart: unless-stopped
 
 volumes:
-  ollama-models:
   oauth-tokens:
+  open-webui:

@@ -12,11 +12,9 @@ for operational findings.
 ## Prerequisites
 
 - [uv](https://docs.astral.sh/uv/) (deps are already locked in `uv.lock`)
-- [Ollama](https://ollama.com) running locally with a Gemma 4 model:
-  ```
-  ollama pull gemma4:e4b        # required
-  ollama pull gemma4:e2b        # optional — the real Track-03 tiering (see below)
-  ```
+- [vLLM](https://docs.vllm.ai/) serving a Gemma checkpoint through its
+  OpenAI-compatible API. By default the application expects it at
+  `http://localhost:8000/v1`.
 - A one-time browser login to the Alien OpenAIRE MCP (free).
 
 ## Setup
@@ -34,31 +32,50 @@ for operational findings.
 
 ## Docker
 
-Docker Compose runs Ollama and the CLI application as separate services. The
-model cache and OAuth refresh tokens are persisted in named volumes; neither is
-copied into the image.
+Docker Compose runs vLLM and the CLI application as separate services. Set
+`VLLM_MODEL` to the Hugging Face identifier of the Gemma checkpoint to serve;
+set `HUGGING_FACE_HUB_TOKEN` too if the model is gated. OAuth refresh tokens
+are persisted in a named volume and are never copied into the image.
 
 ```bash
-docker compose up -d ollama
-docker compose exec ollama ollama pull gemma4:e4b
+export VLLM_MODEL=<gemma-checkpoint-id>
+docker compose up -d vllm
 docker compose run --rm app python -m core.mcp_client openaire
-docker compose run --rm app python -m core.pipeline "does creatine improve cognition in healthy adults?"
+docker compose up -d
 ```
 
 The OAuth callback is bound to `127.0.0.1:8765` on the host, so authorize from
-the same machine running Compose. The `ollama` service requests all available
+the same machine running Compose. The `vllm` service requests all available
 NVIDIA GPUs; remove the `deploy.resources.reservations.devices` block when
 running without NVIDIA Container Toolkit (inference will then use CPU).
+
+Open WebUI is available at `http://localhost:3000`. It is preconfigured to use
+the `app` service through its OpenAI-compatible API; select the
+`devils-advocates` model in the model picker.
+
+## OpenWebUI API
+
+The `app` service exposes an OpenAI-compatible agent API at
+`http://localhost:8001/v1`. Start it with the model server:
+
+```bash
+docker compose up -d vllm app
+```
+
+In OpenWebUI, add an OpenAI connection using `http://app:8001/v1` when it is
+on the same Compose network (or `http://host.docker.internal:8001/v1` from a
+separate OpenWebUI container). Select the `devils-advocates` model. The API
+supports `GET /v1/models`, `POST /v1/chat/completions`, and SSE streaming.
 
 ## Run
 
 ```
-GEMMA_MODEL=gemma4:e4b uv run python -m core.pipeline "does creatine improve cognition in healthy adults?"
+VLLM_MODEL=your-gemma-checkpoint uv run python -m core.pipeline "does creatine improve cognition in healthy adults?"
 ```
 
-`GEMMA_MODEL=gemma4:e4b` forces every role onto E4B — use this until you've
-pulled E2B. Drop it to run the real tiering (E2B for extract/stance/advocate,
-E4B for the judge).
+`VLLM_MODEL` selects one checkpoint for every role, which is the recommended
+deployment. To serve two models, set `VLLM_MODEL_E2B` and `VLLM_MODEL_E4B`;
+`GEMMA_MODEL` still overrides both for one-off runs.
 
 ### Example queries
 
@@ -102,4 +119,4 @@ question → extract (claim + search query) → retrieve (OpenAIRE, live)
 | `core/pipeline.py` | Stream-first orchestration + `--selfcheck` |
 | `core/retrieve.py` | Live OpenAIRE retrieval + full-abstract enrichment |
 | `core/mcp_client.py` | OAuth'd MCP client (browser login, cached refresh token) |
-| `core/llm.py` | The one seam to Gemma (Ollama today, Brev at deploy) |
+| `core/llm.py` | The one seam to Gemma via vLLM's OpenAI-compatible API |
