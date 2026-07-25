@@ -42,6 +42,17 @@ GEMMA_MODEL=gemma4:e4b uv run python -m core.pipeline "does creatine improve cog
 pulled E2B. Drop it to run the real tiering (E2B for extract/stance/advocate,
 E4B for the judge).
 
+## Live UI
+
+Serve the dependency-free live UI:
+
+```
+uv run python -m api.server
+```
+
+Then open `http://127.0.0.1:8765`. The UI calls the real pipeline through
+server-sent events; it does not use mocked results.
+
 ### Example queries
 
 Contested → a real two-sided debate:
