@@ -18,7 +18,6 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY core ./core
 COPY api ./api
 COPY ui ./ui
-COPY main.py ./
 
 RUN useradd --create-home --uid 10001 app \
     && chown -R app:app /app
