@@ -5,6 +5,8 @@ import json
 import threading
 import unittest
 from contextlib import contextmanager
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 from api import server as api_server
@@ -48,6 +50,74 @@ def parse_sse(body: bytes) -> list[tuple[str, dict]]:
 
 
 class ApiIntegrationTests(unittest.TestCase):
+    def test_compiled_frontend_is_preferred_over_the_fallback_ui(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            frontend = root / "frontend"
+            fallback = root / "ui"
+            frontend.mkdir()
+            fallback.mkdir()
+            (frontend / "index.html").write_text("compiled app", encoding="utf-8")
+            (fallback / "index.html").write_text("fallback app", encoding="utf-8")
+
+            async def fake_run(question, config):
+                if False:
+                    yield {}
+
+            with (
+                patch.object(api_server, "FRONTEND_DIST_ROOT", frontend),
+                patch.object(api_server, "UI_ROOT", fallback),
+                running_api(fake_run) as address,
+            ):
+                status, headers, body = get(address, "/")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Content-Type"], "text/html")
+        self.assertEqual(headers["Cache-Control"], "no-cache")
+        self.assertEqual(body, b"compiled app")
+
+    def test_client_side_route_uses_the_compiled_spa_shell(self):
+        with TemporaryDirectory() as temporary:
+            frontend = Path(temporary)
+            (frontend / "index.html").write_text("spa shell", encoding="utf-8")
+
+            async def fake_run(question, config):
+                if False:
+                    yield {}
+
+            with (
+                patch.object(api_server, "FRONTEND_DIST_ROOT", frontend),
+                running_api(fake_run) as address,
+            ):
+                status, _, body = get(address, "/debates/creatine")
+                asset_status, _, _ = get(address, "/assets/missing.js")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body, b"spa shell")
+        self.assertEqual(asset_status, 404)
+
+    def test_ui_remains_available_when_no_compiled_frontend_exists(self):
+        with TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            frontend = root / "missing-dist"
+            fallback = root / "ui"
+            fallback.mkdir()
+            (fallback / "index.html").write_text("fallback app", encoding="utf-8")
+
+            async def fake_run(question, config):
+                if False:
+                    yield {}
+
+            with (
+                patch.object(api_server, "FRONTEND_DIST_ROOT", frontend),
+                patch.object(api_server, "UI_ROOT", fallback),
+                running_api(fake_run) as address,
+            ):
+                status, _, body = get(address, "/")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(body, b"fallback app")
+
     def test_health_is_available_without_starting_the_pipeline(self):
         def should_not_run(*args, **kwargs):
             raise AssertionError("health must not start a debate")
