@@ -4,6 +4,7 @@ type StreamEvent =
   | { type: "claim_text"; claim: string }
   | { type: "snippet"; snippet: Snippet }
   | { type: "turn_claim"; side: "FOR" | "AGAINST"; round: number; claim: Claim }
+  | { type: "clarify"; question: string }
   | { type: "verdict"; verdict: Brief["verdict"] }
   | { type: "crux"; crux: string; resolver: string }
   | { type: "brief"; brief: Brief }
@@ -14,12 +15,16 @@ interface FetchBriefInput {
   demoId?: string;
   signal?: AbortSignal;
   onUpdate?: (brief: Brief) => void;
+  /** Asked when the backend needs the claim pinned down. Resolve with the
+   * user's answer; the pipeline folds it back into intake and keeps going. */
+  onClarify?: (question: string) => Promise<string>;
 }
 
 const EVENT_TYPES = [
   "claim_text",
   "snippet",
   "turn_claim",
+  "clarify",
   "verdict",
   "crux",
   "brief",
@@ -118,7 +123,11 @@ function normalizeBrief(brief: Brief, snippets: Map<string, Snippet>): Brief {
 export function fetchBrief(input: FetchBriefInput): Promise<Brief> {
   return new Promise((resolve, reject) => {
     const apiBase = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
-    const url = `${apiBase}/api/run?question=${encodeURIComponent(input.claim)}`;
+    // A run_id is only needed to answer a mid-stream clarify question; skip it
+    // (and the interactive intake) for callers that don't handle clarify.
+    const runId = input.onClarify ? crypto.randomUUID() : undefined;
+    const url = `${apiBase}/api/run?question=${encodeURIComponent(input.claim)}`
+      + (runId ? `&run_id=${runId}` : "");
     const source = new EventSource(url);
     const snippets = new Map<string, Snippet>();
     let draft = emptyBrief(input.claim);
@@ -173,6 +182,12 @@ export function fetchBrief(input: FetchBriefInput): Promise<Brief> {
           },
         };
         publish();
+      } else if (event.type === "clarify") {
+        if (!input.onClarify || !runId) return;
+        input.onClarify(event.question).then((answer) => {
+          const answerUrl = `${apiBase}/api/answer?run_id=${runId}&text=${encodeURIComponent(answer)}`;
+          return fetch(answerUrl);
+        }).catch(() => finishWithError(new Error("Could not send your clarification.")));
       } else if (event.type === "verdict") {
         draft = { ...draft, verdict: event.verdict };
         publish();
