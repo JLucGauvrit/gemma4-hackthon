@@ -19,10 +19,6 @@ COPY core ./core
 COPY api ./api
 COPY ui ./ui
 
-RUN useradd --create-home --uid 10001 app \
-    && chown -R app:app /app
-USER app
-
 # Agent API (8001), OAuth browser callback (8765), and the live SSE demo UI
 # (8080 inside the container); all are published by docker-compose.yml.
 EXPOSE 8001 8765 8080
