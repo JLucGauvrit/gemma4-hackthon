@@ -1,5 +1,6 @@
 const EVENT_TYPES = [
   "status",
+  "phase",
   "claim_text",
   "snippet",
   "stance",
@@ -117,8 +118,12 @@ function startRun() {
     setPhase("intake");
   });
 
-  source.addEventListener("error", () => {
+  source.addEventListener("error", (event) => {
     if (!isCurrentRun(runId, source)) return;
+    // The API deliberately emits a named `error` SSE event with JSON data.
+    // Leave that event for the typed handler below; this branch is only for a
+    // transport-level EventSource failure, whose Event has no `data` payload.
+    if (typeof event.data === "string" && event.data) return;
     if (state.terminal) {
       closeSource(source);
       return;
@@ -202,6 +207,10 @@ function applyEvent(event) {
   switch (event.type) {
     case "status":
       if (state.phase === "connecting") setPhase("intake", event.message);
+      break;
+
+    case "phase":
+      applyPipelinePhase(event.phase);
       break;
 
     case "claim_text":
@@ -317,6 +326,7 @@ function applyVerdict(verdict) {
 
   switch (normalized) {
     case "CONTESTED":
+      setActiveAgent("BOTH");
       setPhase("opening");
       break;
     case "CONSENSUS":
@@ -336,6 +346,23 @@ function applyVerdict(verdict) {
   }
 }
 
+function applyPipelinePhase(phase) {
+  if (phase === "opening" || phase === "rebuttal") {
+    setActiveAgent("BOTH");
+    setPhase(
+      phase,
+      phase === "opening"
+        ? "Both advocates are composing their openings"
+        : "Both advocates are cross-examining the evidence",
+    );
+    return;
+  }
+  if (phase === "judging") {
+    setActiveAgent(null);
+    setPhase("judging", "The judge is comparing both positions");
+  }
+}
+
 function applyTurn(event) {
   const side = event.side === "AGAINST" ? "AGAINST" : event.side === "FOR" ? "FOR" : null;
   if (!side || !event.claim?.text) return;
@@ -348,13 +375,6 @@ function applyTurn(event) {
   };
   state.claims[side].push(claim);
   renderClaims(side);
-  setActiveAgent(side);
-  setPhase(
-    round === 1 ? "rebuttal" : "opening",
-    `${side === "FOR" ? "FOR advocate" : "AGAINST advocate"} ${
-      round === 1 ? "rebuts" : "presents an opening"
-    }`,
-  );
 }
 
 function finishRun(brief) {
@@ -418,7 +438,7 @@ function renderConsensusSummary(brief) {
   if (forSummary && !state.claims.FOR.length) {
     state.claims.FOR.push({
       text: String(forSummary),
-      cites: [],
+      cites: sourceIdsForPosition(brief.position_for),
       round: "consensus",
       dominant: dominant === "SUPPORTS",
     });
@@ -426,13 +446,33 @@ function renderConsensusSummary(brief) {
   if (againstSummary && !state.claims.AGAINST.length) {
     state.claims.AGAINST.push({
       text: String(againstSummary),
-      cites: [],
+      cites: sourceIdsForPosition(brief.position_against),
       round: "consensus",
       dominant: dominant === "REFUTES",
     });
   }
   renderClaims("FOR");
   renderClaims("AGAINST");
+}
+
+function sourceIdsForPosition(position) {
+  const sources = Array.isArray(position?.sources) ? position.sources : [];
+  const sourceKeys = new Set(
+    sources.flatMap((source) => [
+      source?.doi ? `doi:${String(source.doi).toLowerCase()}` : null,
+      source?.title ? `title:${String(source.title).toLowerCase()}` : null,
+    ]).filter(Boolean),
+  );
+  return [...state.snippets.values()]
+    .filter((snippet) => {
+      const source = snippet.source || {};
+      return (
+        (source.doi && sourceKeys.has(`doi:${String(source.doi).toLowerCase()}`)) ||
+        (source.title &&
+          sourceKeys.has(`title:${String(source.title).toLowerCase()}`))
+      );
+    })
+    .map((snippet) => String(snippet.id));
 }
 
 function failRun(message) {
@@ -688,9 +728,11 @@ function setActiveAgent(side) {
     ["AGAINST", els.againstColumn],
   ].forEach(([name, column]) => {
     if (!column) return;
-    const active = name === side;
+    const active = side === "BOTH" || name === side;
     column.dataset.active = String(active);
-    column.setAttribute("aria-current", active ? "step" : "false");
+    column.setAttribute("aria-busy", String(active));
+    if (name === side) column.setAttribute("aria-current", "step");
+    else column.removeAttribute("aria-current");
   });
   document.body.dataset.activeAgent = side ? side.toLowerCase() : "";
 }
@@ -701,7 +743,7 @@ function setBusy(busy) {
     // Keep submit available: submitting a new question safely cancels the old
     // stream and starts a fresh run.
     els.button.disabled = false;
-    els.button.textContent = busy ? "Restart live" : "Run live";
+    setText(els.button.querySelector("span"), busy ? "Restart live" : "Run live");
   }
   if (els.question) els.question.disabled = false;
   if (els.shared) els.shared.disabled = busy;

@@ -7,6 +7,7 @@ OpenAIRE. The self-check covers the pure logic (enforcement, budgeting, the
 partition toggle, asymmetry, guardrail) with no model or network.
 
 Event shapes (dicts with a "type"):
+  {"type": "phase", "phase": "opening"|"rebuttal"|"judging"}
   {"type": "claim_text", "claim": str}
   {"type": "snippet", "snippet": Snippet}
   {"type": "stance", "id": str, "stance": Stance, "confidence": float, "reason": str}
@@ -352,6 +353,7 @@ async def run(question: str, cfg: Config | None = None,
     # Two advocates stream in parallel, interleaved into one event stream.
     for_claims: list[Claim] = []
     against_claims: list[Claim] = []
+    yield {"type": "phase", "phase": "opening"}
     streams = [
         advocate("FOR", claim, for_pile, 0, cfg),
         advocate("AGAINST", claim, against_pile, 0, cfg),
@@ -369,6 +371,7 @@ async def run(question: str, cfg: Config | None = None,
     if cfg.rebuttal:
         for_rebuttals: list[Claim] = []
         against_rebuttals: list[Claim] = []
+        yield {"type": "phase", "phase": "rebuttal"}
         rebuttal_streams = [
             advocate("FOR", claim, for_pile, 1, cfg, opponent=against_claims),
             advocate("AGAINST", claim, against_pile, 1, cfg, opponent=for_claims),
@@ -384,6 +387,7 @@ async def run(question: str, cfg: Config | None = None,
             Turn(agent="AGAINST", round=1, claims=against_rebuttals),
         ])
 
+    yield {"type": "phase", "phase": "judging"}
     v = await judge(claim, transcript, for_pile, against_pile, cfg)
     yield {"type": "crux", "crux": v["crux"],
            "crux_type": v["crux_type"], "resolver": v["resolver"]}
@@ -455,7 +459,10 @@ def _oos_brief(claim: str, reason: str, t0: float, cfg: Config, on_topic: int = 
         resolver=resolver,
         asymmetry=1.0, transcript=[],
         meta={"latency_s": round(time.perf_counter() - t0, 3),
-              "tiers": cfg.tiers, "out_of_scope": True, "on_topic": on_topic},
+              "tiers": cfg.tiers,
+              "out_of_scope": verdict == "OUT_OF_SCOPE",
+              "insufficient_evidence": verdict == "INSUFFICIENT_EVIDENCE",
+              "on_topic": on_topic},
         verdict=verdict,
     )
 

@@ -175,6 +175,8 @@ class DebateStreamTests(unittest.IsolatedAsyncioTestCase):
 
         turns = [event for event in events if event["type"] == "turn_claim"]
         self.assertEqual([0, 0, 1, 1], sorted(event["round"] for event in turns))
+        phases = [event["phase"] for event in events if event["type"] == "phase"]
+        self.assertEqual(["opening", "rebuttal", "judging"], phases)
         rebuttals = [call for call in calls if call[1] == 1]
         self.assertEqual(2, len(rebuttals))
         self.assertTrue(all(opponent_claims for _, _, opponent_claims in rebuttals))
