@@ -16,13 +16,16 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
 COPY core ./core
+COPY api ./api
+COPY ui ./ui
 COPY main.py ./
 
 RUN useradd --create-home --uid 10001 app \
     && chown -R app:app /app
 USER app
 
-# Agent API and OAuth browser callback; both are published by docker-compose.yml.
-EXPOSE 8001 8765
+# Agent API (8001), OAuth browser callback (8765), and the live SSE demo UI
+# (8080 inside the container); all are published by docker-compose.yml.
+EXPOSE 8001 8765 8080
 
 CMD ["python", "-m", "core.api"]

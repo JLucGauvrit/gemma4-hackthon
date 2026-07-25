@@ -35,6 +35,7 @@ services:
   app:
     build:
       context: .
+    image: devils-advocates:latest
     environment:
       VLLM_BASE_URL: http://vllm:8000/v1
       VLLM_MODEL: ${VLLM_MODEL:-google/gemma-3-4b-it}
@@ -60,22 +61,31 @@ services:
     tty: true
     command: ["python", "-m", "core.api"]
 
-  open-webui:
-    image: ghcr.io/open-webui/open-webui:main
+  webui:
+    build:
+      context: .
+    image: devils-advocates:latest
+    environment:
+      VLLM_BASE_URL: http://vllm:8000/v1
+      VLLM_MODEL: ${VLLM_MODEL:-google/gemma-3-4b-it}
+      DA_TOKEN_DIR: /home/app/.devils_advocates
     depends_on:
-      app:
+      vllm:
         condition: service_healthy
+    healthcheck:
+      test:
+        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
     ports:
       - "3000:8080"
-    environment:
-      ENABLE_OPENAI_API: "true"
-      OPENAI_API_BASE_URL: http://app:8001/v1
-      OPENAI_API_KEY: unused
     volumes:
-      - open-webui:/app/backend/data
+      - oauth-tokens:/home/app/.devils_advocates
     restart: unless-stopped
+    command: ["python", "-m", "api.server", "--host", "0.0.0.0", "--port", "8080"]
 
 volumes:
   oauth-tokens:
-  open-webui:
   hf-cache:
