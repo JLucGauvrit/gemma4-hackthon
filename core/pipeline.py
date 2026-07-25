@@ -251,6 +251,8 @@ async def run(question: str, cfg: Config | None = None,
     yield {"type": "claim_text", "claim": claim, "query": query}
 
     snips = await retrieve(query, cfg)
+    from core.squeeze import compress_snippets
+    compression = await compress_snippets(claim, snips, cfg)
     for s in snips:
         yield {"type": "snippet", "snippet": s}
 
@@ -272,7 +274,8 @@ async def run(question: str, cfg: Config | None = None,
         yield {"type": "out_of_scope", "on_topic": on_topic}
         yield {"type": "brief", "brief": _oos_brief(
             claim, "Not enough on-topic evidence to construct a debate — this may "
-            "not be a contested scientific claim.", t0, cfg, on_topic)}
+            "not be a contested scientific claim.", t0, cfg, on_topic,
+            compression=compression)}
         return
 
     if verdict == "CONSENSUS":
@@ -297,7 +300,8 @@ async def run(question: str, cfg: Config | None = None,
             crux=c["statement"], crux_type="none", resolver=c["dissent"],
             asymmetry=asymmetry, transcript=[],
             meta={"latency_s": round(time.perf_counter() - t0, 3), "tiers": cfg.tiers,
-                  "shared_evidence": cfg.shared_evidence, "dominant": dom_stance},
+                  "shared_evidence": cfg.shared_evidence, "dominant": dom_stance,
+                  "compression": compression},
             verdict="CONSENSUS")}
         return
 
@@ -335,7 +339,8 @@ async def run(question: str, cfg: Config | None = None,
         crux=v["crux"], crux_type=v["crux_type"], resolver=v["resolver"],
         asymmetry=v["asymmetry"], transcript=transcript,
         meta={"latency_s": round(time.perf_counter() - t0, 3),
-              "tiers": cfg.tiers, "shared_evidence": cfg.shared_evidence},
+              "tiers": cfg.tiers, "shared_evidence": cfg.shared_evidence,
+              "compression": compression},
         verdict="CONTESTED",
     )
     yield {"type": "brief", "brief": brief}
@@ -383,17 +388,22 @@ def _clean_query(q) -> str:
     return " ".join(str(q).split()[:3])
 
 
-def _oos_brief(claim: str, reason: str, t0: float, cfg: Config, on_topic: int = 0) -> Brief:
-    """The OUT_OF_SCOPE Brief — reached from intake (not a claim) or the post-
-    retrieval floor (a claim, but no evidence). Same shape either way."""
+def _oos_brief(claim: str, reason: str, t0: float, cfg: Config, on_topic: int = 0,
+               compression: dict | None = None) -> Brief:
+    """The OUT_OF_SCOPE Brief — reached from intake (not a claim, no compression
+    ran yet) or the post-retrieval floor (a claim, but no evidence). Same shape
+    either way; `compression` is only set for the latter."""
+    meta = {"latency_s": round(time.perf_counter() - t0, 3),
+            "tiers": cfg.tiers, "out_of_scope": True, "on_topic": on_topic}
+    if compression is not None:
+        meta["compression"] = compression
     return Brief(
         claim=claim,
         position_for=Position("", [], []), position_against=Position("", [], []),
         crux=reason, crux_type="none",
         resolver="Try a specific, testable scientific claim.",
         asymmetry=1.0, transcript=[],
-        meta={"latency_s": round(time.perf_counter() - t0, 3),
-              "tiers": cfg.tiers, "out_of_scope": True, "on_topic": on_topic},
+        meta=meta,
         verdict="OUT_OF_SCOPE",
     )
 

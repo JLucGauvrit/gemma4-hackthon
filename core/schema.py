@@ -98,3 +98,5 @@ class Config:
     rebuttal: bool = False          # 1 rebuttal round — off in v1 (PRD cut #1)
     consensus_asymmetry: float = 0.85  # asymmetry ≥ this => CONSENSUS, not a debate (§9)
     max_clarify: int = 2            # intake clarify bounces before best-guess fallback
+    compress: bool = False          # question-aware abstract compression before stance
+    compress_budget: float = 0.4    # keep this fraction of each abstract's words

@@ -11,9 +11,31 @@ default to `VLLM_MODEL`, making a single-checkpoint deployment the default.
 
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import re
+
+_usage_sink: contextvars.ContextVar[list[dict] | None] = contextvars.ContextVar(
+    "_usage_sink", default=None)
+
+
+class capture_usage:
+    """Context manager for eval harnesses: collect per-call token usage from
+    every generate() call made inside the block, including ones spawned as
+    concurrent asyncio tasks (e.g. classify_stance's gather'd batches) — a
+    plain module-level list would race across those; each Task instead gets
+    its own copy of this ContextVar binding pointing at the SAME list object,
+    so appends land safely without a lock (asyncio has no preemption mid-call)."""
+
+    def __enter__(self) -> list[dict]:
+        self.records: list[dict] = []
+        self._token = _usage_sink.set(self.records)
+        return self.records
+
+    def __exit__(self, *exc) -> None:
+        _usage_sink.reset(self._token)
+
 
 def _model_for(tier: str) -> str:
     """Return the vLLM served-model name for a configured tier."""
@@ -52,7 +74,16 @@ async def generate(role: str, prompt: str, *, tier: str = "E2B") -> str:
     async with httpx.AsyncClient(timeout=180) as c:
         r = await c.post(url, json=payload, headers=headers)
         r.raise_for_status()
-        return r.json()["choices"][0]["message"]["content"]
+        data = r.json()
+        sink = _usage_sink.get()
+        if sink is not None:
+            usage = data.get("usage") or {}
+            sink.append({
+                "role": role, "tier": tier,
+                "prompt_tokens": usage.get("prompt_tokens", 0),
+                "completion_tokens": usage.get("completion_tokens", 0),
+            })
+        return data["choices"][0]["message"]["content"]
 
 
 def parse_json(text: str):
