@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 import mimetypes
+import queue
 from dataclasses import asdict, is_dataclass
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,6 +19,26 @@ ROOT = Path(__file__).resolve().parents[1]
 FRONTEND_DIST_ROOT = ROOT / "frontend" / "dist"
 UI_ROOT = ROOT / "ui"
 SSE_HEARTBEAT_SECONDS = 12.0
+CLARIFY_ANSWER_TIMEOUT_SECONDS = 300.0
+
+# run_id -> inbox for that run's pending clarify answer. One entry while a
+# `run()` is blocked in `ask()`; the SSE handler owns creation/cleanup.
+_clarify_inboxes: dict[str, "queue.Queue[str]"] = {}
+
+
+def _make_ask(run_id: str):
+    """Bridge the pipeline's `ask` callback to a second HTTP request
+    (`/api/answer`) answering the `clarify` event already on the SSE stream."""
+    inbox: "queue.Queue[str]" = queue.Queue()
+    _clarify_inboxes[run_id] = inbox
+
+    async def ask(_question: str) -> str:
+        try:
+            return await asyncio.to_thread(inbox.get, timeout=CLARIFY_ANSWER_TIMEOUT_SECONDS)
+        except queue.Empty:
+            raise TimeoutError("No clarification answer received.")
+
+    return ask
 
 
 def _jsonable(value):
@@ -52,10 +73,24 @@ class DemoHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/run":
             self._stream_run(parsed.query)
             return
+        if parsed.path == "/api/answer":
+            self._answer_clarify(parsed.query)
+            return
         if parsed.path == "/api/health":
             self._json({"ok": True})
             return
         self._serve_static(parsed.path)
+
+    def _answer_clarify(self, query_string: str) -> None:
+        params = parse_qs(query_string)
+        run_id = (params.get("run_id") or [""])[0]
+        text = (params.get("text") or [""])[0]
+        inbox = _clarify_inboxes.get(run_id)
+        if inbox is None:
+            self._json({"error": "no pending clarification for run_id"}, HTTPStatus.NOT_FOUND)
+            return
+        inbox.put(text)
+        self._json({"ok": True})
 
     def _stream_run(self, query_string: str) -> None:
         params = parse_qs(query_string)
@@ -65,6 +100,8 @@ class DemoHandler(BaseHTTPRequestHandler):
             return
 
         cfg = Config(shared_evidence=(params.get("shared_evidence") or ["false"])[0] == "true")
+        run_id = (params.get("run_id") or [""])[0]
+        ask = _make_ask(run_id) if run_id else None
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
@@ -78,10 +115,12 @@ class DemoHandler(BaseHTTPRequestHandler):
 
             async def produce() -> None:
                 try:
-                    async for event in run(question, cfg):
+                    async for event in run(question, cfg, ask=ask):
                         await queue.put(event)
                 finally:
                     await queue.put(finished)
+                    if run_id:
+                        _clarify_inboxes.pop(run_id, None)
 
             producer = asyncio.create_task(produce())
             try:
