@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchBrief } from "@/lib/brief-client";
 import { DEMO_OPTIONS } from "@/lib/brief-mocks";
 import type { Brief, Claim, Position, Source } from "@/lib/brief-types";
@@ -267,8 +267,9 @@ export function DevilsAdvocates() {
   const [runId, setRunId] = useState(0);
   const [chatMessages, setChatMessages] = useState<{text: string; isUser: boolean}[]>([]);
   const [chatInput, setChatInput] = useState("");
-  const [clarificationQuestions, setClarificationQuestions] = useState<string[]>([]);
-  const [showClarification, setShowClarification] = useState(false);
+  const [clarifyQuestion, setClarifyQuestion] = useState<string | null>(null);
+  const [clarifyAnswer, setClarifyAnswer] = useState("");
+  const clarifyResolveRef = useRef<((answer: string) => void) | null>(null);
   const [debateComplete, setDebateComplete] = useState(false);
   const [error, setError] = useState("");
 
@@ -279,21 +280,22 @@ export function DevilsAdvocates() {
       setBrief(null);
       setDebateComplete(false);
       setError("");
-      setShowClarification(false);
+      setClarifyQuestion(null);
       fetchBrief({
         claim: input,
         demoId,
         signal: controller.signal,
         onUpdate: (nextBrief) => setBrief(nextBrief),
+        onClarify: (question) =>
+          new Promise<string>((resolve) => {
+            clarifyResolveRef.current = resolve;
+            setClarifyQuestion(question);
+          }),
       }).then((b) => {
         if (!controller.signal.aborted) {
           setBrief(b);
           setLoading(false);
           setDebateComplete(true);
-          // Generate clarification questions
-          const questions = generateClarificationQuestions(b.claim);
-          setClarificationQuestions(questions);
-          setShowClarification(questions.length > 0);
         }
       }).catch((cause: unknown) => {
         if (!controller.signal.aborted) {
@@ -344,11 +346,19 @@ export function DevilsAdvocates() {
     }
   };
 
-  const handleClarificationSelect = (question: string) => {
-    // Add clarification to chat and update input
-    setChatMessages(prev => [...prev, { text: question, isUser: true }]);
-    setInput(`${input} ${question}`);
-    setShowClarification(false);
+  const handleClarifySubmit = (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const answer = clarifyAnswer.trim();
+    if (!answer || !clarifyResolveRef.current) return;
+    setChatMessages(prev => [
+      ...prev,
+      { text: clarifyQuestion ?? "", isUser: false },
+      { text: answer, isUser: true },
+    ]);
+    clarifyResolveRef.current(answer);
+    clarifyResolveRef.current = null;
+    setClarifyQuestion(null);
+    setClarifyAnswer("");
   };
 
   const handleChatSubmit = (e?: React.FormEvent) => {
@@ -369,36 +379,12 @@ export function DevilsAdvocates() {
     setError("");
     setChatMessages([]);
     setChatInput("");
-    setShowClarification(false);
+    setClarifyQuestion(null);
+    setClarifyAnswer("");
+    clarifyResolveRef.current = null;
   };
 
   const displayedClaim = useMemo(() => brief?.claim ?? input, [brief, input]);
-
-  // Generate clarification questions
-  function generateClarificationQuestions(claim: string): string[] {
-    const lowerClaim = claim.toLowerCase();
-    const questions: string[] = [];
-    
-    if (lowerClaim.includes("creatine")) {
-      questions.push("Are you referring to creatine monohydrate?");
-      questions.push("What daily dose?");
-      questions.push("Over what duration?");
-    } else if (lowerClaim.includes("fasting")) {
-      questions.push("What type of fasting (intermittent, prolonged)?");
-      questions.push("What duration?");
-      questions.push("Any specific population?");
-    } else if (lowerClaim.includes("exercise")) {
-      questions.push("What type of exercise?");
-      questions.push("What intensity and duration?");
-      questions.push("Any specific population?");
-    } else {
-      questions.push("What population are we considering?");
-      questions.push("What timeframe?");
-      questions.push("Any specific conditions?");
-    }
-    
-    return questions.slice(0, 3);
-  }
 
   return (
     <div className="app-container">
@@ -503,23 +489,22 @@ export function DevilsAdvocates() {
         </div>
       )}
 
-      {/* Clarification questions */}
-      {showClarification && brief && !loading && (
+      {/* Clarify: the pipeline needs the claim pinned down before it retrieves */}
+      {clarifyQuestion && (
         <div className="clarification-section">
-          <p className="clarification-title">
-            🤖 Clarify for better results:
-          </p>
-          <div className="clarification-questions">
-            {clarificationQuestions.map((q, i) => (
-              <button
-                key={i}
-                className="clarification-question"
-                onClick={() => handleClarificationSelect(q)}
-              >
-                {q}
-              </button>
-            ))}
-          </div>
+          <p className="clarification-title">🤖 {clarifyQuestion}</p>
+          <form className="clarification-questions" onSubmit={handleClarifySubmit}>
+            <input
+              className="clarification-input"
+              value={clarifyAnswer}
+              onChange={(e) => setClarifyAnswer(e.target.value)}
+              placeholder="Your answer…"
+              autoFocus
+            />
+            <button type="submit" className="clarification-question" disabled={!clarifyAnswer.trim()}>
+              Send
+            </button>
+          </form>
         </div>
       )}
 
