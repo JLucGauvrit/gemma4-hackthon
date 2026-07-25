@@ -22,6 +22,12 @@ the PRD didn't have. It does **not** change any settled §4 decision — it refi
   color, MeSH subjects. 65 hits for "creatine cognition". **This is the primary
   evidence corpus, not just chips.** Search is keyword-**AND** (more terms =
   fewer results — opposite of Google); keep to 2–4 terms, use OR to broaden.
+  **Two-step for stance:** `search_research_products` truncates abstracts to
+  ~500 chars (cuts off the conclusion). `get_research_product_details(doi)`
+  returns the **full** abstract incl. the result sentence — call it on the
+  top-k. Verified: the creatine review's full abstract states the finding AND
+  the population crux ("vegetarians responded better… unchanged in young
+  individuals") — the papers hand over the disagreement; no need to invent it.
 - **medRxiv = clinical full-text depth.** Datasets by specialty: Epidemiology
   11.7K, Infectious Diseases 12.5K, Public/Global Health 7.8K, Neurology 5.8K,
   Psychiatry 4.6K, Cardiovascular 4K, Oncology 2.8K, Nutrition 885, Sports Med

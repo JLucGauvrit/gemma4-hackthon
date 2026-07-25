@@ -1,0 +1,91 @@
+
+
+services:
+  vllm:
+    image: vllm/vllm-openai:latest
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        : "$${MODEL:?set VLLM_MODEL to the Gemma checkpoint identifier}"
+        exec vllm serve "$${MODEL}"
+    environment:
+      # HF_TOKEN is the Hugging Face-supported authentication variable.
+      HF_TOKEN: ${HF_TOKEN:-}
+      HF_HOME: /root/.cache/huggingface
+      # A usable default keeps `docker compose up` from starting vLLM with an
+      # empty model identifier. Override in .env for another checkpoint.
+      MODEL: ${VLLM_MODEL:-google/gemma-3-4b-it}
+    healthcheck:
+      test:
+        ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    volumes:
+      - hf-cache:/root/.cache/huggingface
+
+  app:
+    build:
+      context: .
+    image: devils-advocates:latest
+    environment:
+      VLLM_BASE_URL: http://vllm:8000/v1
+      VLLM_MODEL: ${VLLM_MODEL:-google/gemma-3-4b-it}
+      DA_TOKEN_DIR: /root/.devils_advocates
+      # The browser redirects to localhost:8765 on the host; Docker forwards it here.
+      DA_CALLBACK_BIND_HOST: 0.0.0.0
+    depends_on:
+      vllm:
+        condition: service_healthy
+    healthcheck:
+      test:
+        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8001/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    ports:
+      - "127.0.0.1:8001:8001"
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - oauth-tokens:/root/.devils_advocates
+    stdin_open: true
+    tty: true
+    command: ["python", "-m", "core.api"]
+
+  webui:
+    build:
+      context: .
+    image: devils-advocates:latest
+    environment:
+      VLLM_BASE_URL: http://vllm:8000/v1
+      VLLM_MODEL: ${VLLM_MODEL:-google/gemma-3-4b-it}
+      DA_TOKEN_DIR: /root/.devils_advocates
+    depends_on:
+      vllm:
+        condition: service_healthy
+    healthcheck:
+      test:
+        ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    ports:
+      - "3000:8080"
+    volumes:
+      - oauth-tokens:/root/.devils_advocates
+    restart: unless-stopped
+    command: ["python", "-m", "api.server", "--host", "0.0.0.0", "--port", "8080"]
+
+volumes:
+  oauth-tokens:
+  hf-cache:
