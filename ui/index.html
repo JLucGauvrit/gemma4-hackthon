@@ -3,107 +3,247 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Devil's Advocates</title>
+    <meta
+      name="description"
+      content="A live, evidence-grounded scientific debate between AI research advocates."
+    />
+    <title>Devil's Advocates — Live Science Arena</title>
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
+    <a class="skip-link" href="#debate-arena">Skip to the live debate</a>
+
+    <header class="broadcast-bar">
+      <div class="broadcast-brand">
+        <span class="broadcast-mark" aria-hidden="true">DA</span>
+        <span>Research desk / live argument systems</span>
+      </div>
+      <div class="broadcast-signal">
+        <i aria-hidden="true"></i>
+        <span>Evidence pipeline online</span>
+      </div>
+      <time datetime="2026">Issue 001 — Experimental</time>
+    </header>
+
     <main class="shell">
-      <section class="mast">
-        <div>
-          <p class="eyebrow">Live scientific disagreement engine</p>
-          <h1>Devil's Advocates</h1>
+      <section class="mast" aria-labelledby="page-title">
+        <div class="mast-copy">
+          <p class="eyebrow"><span>Live</span> scientific disagreement engine</p>
+          <h1 id="page-title">
+            Devil's
+            <em>Advocates</em>
+          </h1>
+          <p class="dek">
+            Two agents. Partitioned evidence. One question worth arguing about.
+          </p>
         </div>
-        <div class="run-state" id="run-state">idle</div>
+        <div class="state-console">
+          <span class="state-label">Pipeline transmission</span>
+          <div class="run-state" id="run-state" role="status" aria-live="polite">
+            idle
+          </div>
+          <span class="state-meta">OpenAIRE × Gemma</span>
+        </div>
       </section>
 
-      <form class="query" id="query-form">
-        <input
-          id="question"
-          name="question"
-          autocomplete="off"
-          value="does creatine improve cognition in healthy adults?"
-          aria-label="Scientific claim"
-        />
-        <label class="toggle" title="Runs both advocates with the same evidence pile">
-          <input id="shared" type="checkbox" />
-          <span>partition off</span>
-        </label>
-        <button id="run-button" type="submit">Run live</button>
-      </form>
+      <section class="question-console" aria-labelledby="question-heading">
+        <div class="console-index" aria-hidden="true">01</div>
+        <div class="console-main">
+          <p class="section-kicker" id="question-heading">Put a claim on trial</p>
+          <form class="query" id="query-form">
+            <label class="visually-hidden" for="question">Scientific claim</label>
+            <div class="question-field">
+              <span aria-hidden="true">Q</span>
+              <input
+                id="question"
+                name="question"
+                autocomplete="off"
+                value="does creatine improve cognition in healthy adults?"
+                aria-label="Scientific claim"
+              />
+            </div>
+            <label
+              class="toggle"
+              title="Runs both advocates with the same evidence pile"
+            >
+              <input id="shared" type="checkbox" />
+              <span class="toggle-track" aria-hidden="true"><i></i></span>
+              <span class="toggle-copy">
+                shared evidence
+                <small>partition off</small>
+              </span>
+            </label>
+            <button id="run-button" type="submit">
+              <span>Enter arena</span>
+              <i aria-hidden="true">↗</i>
+            </button>
+          </form>
+        </div>
+      </section>
 
       <section class="claim-strip" aria-live="polite">
-        <div>
-          <span>claim</span>
+        <div class="claim-card">
+          <span class="field-label">Claim under examination</span>
           <p id="claim-text">No run yet.</p>
         </div>
-        <div>
-          <span>query</span>
-          <p id="query-text">-</p>
+        <div class="query-card">
+          <span class="field-label">Retrieval query</span>
+          <p id="query-text">—</p>
         </div>
       </section>
 
-      <section class="stage-grid">
-        <article class="column for">
-          <header>
-            <span>FOR</span>
-            <b id="for-count">0</b>
-          </header>
-          <div class="claim-list" id="for-claims"></div>
-        </article>
+      <nav class="phase-rail" aria-label="Debate pipeline">
+        <span class="phase-label">Live sequence</span>
+        <ol>
+          <li><i>01</i><span>Retrieve</span></li>
+          <li><i>02</i><span>Classify</span></li>
+          <li><i>03</i><span>Open</span></li>
+          <li><i>04</i><span>Rebut</span></li>
+          <li><i>05</i><span>Judge</span></li>
+        </ol>
+      </nav>
 
-        <article class="column against">
-          <header>
-            <span>AGAINST</span>
-            <b id="against-count">0</b>
-          </header>
-          <div class="claim-list" id="against-claims"></div>
-        </article>
+      <section class="arena-shell" id="debate-arena" aria-labelledby="arena-title">
+        <header class="arena-heading">
+          <div>
+            <p class="section-kicker">02 / The argument</p>
+            <h2 id="arena-title">Live debate arena</h2>
+          </div>
+          <div class="on-air"><i aria-hidden="true"></i> Agent channel</div>
+        </header>
 
-        <aside class="panel">
-          <div class="verdict">
-            <span>verdict</span>
-            <strong id="verdict">-</strong>
+        <div class="arena-beam" aria-hidden="true">
+          <span>Evidence-grounded exchange</span>
+        </div>
+
+        <section class="stage-grid">
+          <article class="column for" aria-labelledby="for-heading">
+            <header class="agent-header">
+              <div class="agent-portrait" aria-hidden="true">
+                <span>F</span>
+                <i></i>
+              </div>
+              <div class="agent-identity">
+                <small>Research advocate / A</small>
+                <h3 id="for-heading">For the claim</h3>
+                <span class="agent-status"><i></i> evidence channel</span>
+              </div>
+              <b id="for-count" aria-label="FOR argument count">0</b>
+            </header>
+            <div class="agent-standby" aria-hidden="true">
+              <span>FOR</span>
+              <p>Awaiting an evidence-grounded opening statement.</p>
+            </div>
+            <div class="claim-list" id="for-claims"></div>
+          </article>
+
+          <div class="versus-mark" aria-hidden="true">
+            <span>cross</span>
+            <b>VS</b>
+            <span>examine</span>
           </div>
-          <div class="meter">
-            <span>asymmetry</span>
-            <div><i id="asymmetry-bar"></i></div>
-            <b id="asymmetry">-</b>
-          </div>
-          <div class="crux">
-            <span>crux</span>
-            <p id="crux">Waiting for the judge.</p>
-          </div>
-          <div class="resolver">
-            <span>resolver</span>
-            <p id="resolver">-</p>
-          </div>
-        </aside>
+
+          <article class="column against" aria-labelledby="against-heading">
+            <header class="agent-header">
+              <div class="agent-portrait" aria-hidden="true">
+                <span>A</span>
+                <i></i>
+              </div>
+              <div class="agent-identity">
+                <small>Research advocate / B</small>
+                <h3 id="against-heading">Against the claim</h3>
+                <span class="agent-status"><i></i> evidence channel</span>
+              </div>
+              <b id="against-count" aria-label="AGAINST argument count">0</b>
+            </header>
+            <div class="agent-standby" aria-hidden="true">
+              <span>AGAINST</span>
+              <p>Awaiting an evidence-grounded opening statement.</p>
+            </div>
+            <div class="claim-list" id="against-claims"></div>
+          </article>
+
+          <aside class="panel" aria-labelledby="judge-heading">
+            <div class="judge-header">
+              <div class="judge-seal" aria-hidden="true">
+                <span>J</span>
+              </div>
+              <div>
+                <small>Independent synthesis</small>
+                <h3 id="judge-heading">The judge's desk</h3>
+              </div>
+            </div>
+            <div class="verdict">
+              <span>verdict transmission</span>
+              <strong id="verdict">—</strong>
+            </div>
+            <div class="meter">
+              <div class="meter-heading">
+                <span title="0 = balanced evidence; 1 = evidence on only one side"
+                  >Evidence imbalance</span
+                >
+                <b id="asymmetry">—</b>
+              </div>
+              <div class="meter-track">
+                <i id="asymmetry-bar"></i>
+              </div>
+              <div class="meter-scale"><span>balanced</span><span>one-sided</span></div>
+            </div>
+            <div class="crux">
+              <span>the crux</span>
+              <p id="crux">Waiting for the judge.</p>
+            </div>
+            <div class="resolver">
+              <span>what would resolve it</span>
+              <p id="resolver">—</p>
+            </div>
+          </aside>
+        </section>
       </section>
 
-      <section class="evidence">
+      <section class="evidence" aria-labelledby="evidence-heading">
         <header>
-          <h2>Evidence Stream</h2>
-          <div class="counts">
-            <span><b id="snippet-count">0</b> retrieved</span>
-            <span><b id="support-count">0</b> supports</span>
-            <span><b id="refute-count">0</b> refutes</span>
-            <span><b id="neutral-count">0</b> neutral</span>
+          <div>
+            <p class="section-kicker">03 / Source room</p>
+            <h2 id="evidence-heading">Evidence stream</h2>
+          </div>
+          <div class="counts" aria-label="Evidence counts">
+            <span class="count-retrieved"><b id="snippet-count">0</b> retrieved</span>
+            <span class="count-support"><b id="support-count">0</b> supports</span>
+            <span class="count-refute"><b id="refute-count">0</b> refutes</span>
+            <span class="count-unresolved"
+              ><b id="unresolved-count">0</b> unresolved</span
+            >
+            <span class="count-neutral"><b id="neutral-count">0</b> neutral</span>
           </div>
         </header>
+        <div class="evidence-standby" aria-hidden="true">
+          <span>Incoming research appears here as it is retrieved and classified.</span>
+          <i></i><i></i><i></i>
+        </div>
         <div class="evidence-list" id="evidence-list"></div>
       </section>
 
-      <section class="events">
+      <section class="events" aria-labelledby="log-heading">
         <header>
-          <h2>Run Log</h2>
-          <button id="clear-button" type="button">Clear</button>
+          <div>
+            <p class="section-kicker">System telemetry</p>
+            <h2 id="log-heading">Run log</h2>
+          </div>
+          <button id="clear-button" type="button">Clear transmission</button>
         </header>
         <ol id="event-log"></ol>
       </section>
+
+      <footer class="page-footer">
+        <p>Not an oracle. A transparent argument, grounded in inspectable sources.</p>
+        <span>Devil's Advocates / 2026</span>
+      </footer>
     </main>
 
     <template id="claim-template">
       <div class="argument">
+        <span class="argument-round"></span>
         <p></p>
         <div class="cites"></div>
       </div>
@@ -111,9 +251,12 @@
 
     <template id="paper-template">
       <article class="paper">
-        <div>
+        <div class="paper-index" aria-hidden="true"></div>
+        <div class="paper-content">
           <b></b>
-          <p></p>
+          <p class="paper-meta"></p>
+          <p class="paper-reason"></p>
+          <p class="paper-excerpt"></p>
         </div>
         <span></span>
       </article>
