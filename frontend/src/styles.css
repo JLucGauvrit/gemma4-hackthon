@@ -267,12 +267,27 @@
   width: 56px;
   height: 56px;
   border-radius: 50%;
+  overflow: visible;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 1.75rem;
   flex-shrink: 0;
   position: relative;
+}
+
+.agent-avatar-image {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: 50% 24%;
+  border: 2px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.28);
+}
+
+.agent.against .agent-avatar-image {
+  transform: scaleX(-1);
 }
 
 .agent.for .agent-avatar {

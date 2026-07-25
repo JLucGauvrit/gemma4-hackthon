@@ -49,7 +49,6 @@ function DebateAgent({
   index: number;
 }) {
   const isFor = side === "for";
-  const agentEmoji = isFor ? "👹" : "😇";
   const agentName = isFor ? "FOR" : "AGAINST";
   
   return (
@@ -61,7 +60,12 @@ function DebateAgent({
       }}
     >
       <div className="agent-avatar" data-tooltip={agentName}>
-        {agentEmoji}
+        <img
+          src="/debate-agent.png"
+          alt=""
+          className="agent-avatar-image"
+          aria-hidden="true"
+        />
       </div>
       <div className="agent-speech">
         <p className="agent-message">{message}</p>
