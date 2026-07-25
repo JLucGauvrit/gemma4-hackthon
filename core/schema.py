@@ -16,6 +16,10 @@ CruxType = Literal[
     "measured-construct", "effect-size", "none",
 ]
 
+# The three things a question can turn out to be. Branches the whole pipeline
+# and the UI: a debate, a sourced consensus, or an honest refusal.
+Verdict = Literal["CONTESTED", "CONSENSUS", "OUT_OF_SCOPE"]
+
 
 @dataclass
 class Source:
@@ -68,6 +72,7 @@ class Brief:
     asymmetry: float  # 0.0 even split … 1.0 one-sided
     transcript: list[Turn]
     meta: dict = field(default_factory=dict)  # latency, tokens, tiers, config
+    verdict: Verdict = "CONTESTED"  # CONTESTED debate · CONSENSUS · OUT_OF_SCOPE
 
 
 # Default tier per role (PRD §6). "all E2B" = Track-03 purity run; bump to E4B
@@ -85,6 +90,11 @@ class Config:
     shared_evidence: bool = False   # False = partition ON (the debate). Flip for the ablation.
     tiers: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_TIERS))
     max_snippets: int = 24          # retrieved before classification
+    stance_batch: int = 6           # snippets/stance call — Gemma collapses a big batch to 1 object
     top_k_per_side: int = 5         # kept per pile after classification
     min_evidence: int = 2           # SUPPORTS+REFUTES floor; below => out-of-scope (§9)
+    min_side: int = 2               # a debate needs ≥ this on the weaker side; a lone
+                                    # dissenter => CONSENSUS (robust to 1 stance misclassification)
     rebuttal: bool = False          # 1 rebuttal round — off in v1 (PRD cut #1)
+    consensus_asymmetry: float = 0.85  # asymmetry ≥ this => CONSENSUS, not a debate (§9)
+    max_clarify: int = 2            # intake clarify bounces before best-guess fallback

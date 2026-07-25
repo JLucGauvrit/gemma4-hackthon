@@ -79,6 +79,17 @@ VLLM_MODEL=your-gemma-checkpoint uv run python -m core.pipeline "does creatine i
 deployment. To serve two models, set `VLLM_MODEL_E2B` and `VLLM_MODEL_E4B`;
 `GEMMA_MODEL` still overrides both for one-off runs.
 
+## Live UI
+
+Serve the dependency-free live UI:
+
+```
+uv run python -m api.server
+```
+
+Then open `http://127.0.0.1:8765`. The UI calls the real pipeline through
+server-sent events; it does not use mocked results.
+
 ### Example queries
 
 Contested → a real two-sided debate:

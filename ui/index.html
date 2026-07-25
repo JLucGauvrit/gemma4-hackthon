@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Devil's Advocates</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="mast">
+        <div>
+          <p class="eyebrow">Live scientific disagreement engine</p>
+          <h1>Devil's Advocates</h1>
+        </div>
+        <div class="run-state" id="run-state">idle</div>
+      </section>
+
+      <form class="query" id="query-form">
+        <input
+          id="question"
+          name="question"
+          autocomplete="off"
+          value="does creatine improve cognition in healthy adults?"
+          aria-label="Scientific claim"
+        />
+        <label class="toggle" title="Runs both advocates with the same evidence pile">
+          <input id="shared" type="checkbox" />
+          <span>partition off</span>
+        </label>
+        <button id="run-button" type="submit">Run live</button>
+      </form>
+
+      <section class="claim-strip" aria-live="polite">
+        <div>
+          <span>claim</span>
+          <p id="claim-text">No run yet.</p>
+        </div>
+        <div>
+          <span>query</span>
+          <p id="query-text">-</p>
+        </div>
+      </section>
+
+      <section class="stage-grid">
+        <article class="column for">
+          <header>
+            <span>FOR</span>
+            <b id="for-count">0</b>
+          </header>
+          <div class="claim-list" id="for-claims"></div>
+        </article>
+
+        <article class="column against">
+          <header>
+            <span>AGAINST</span>
+            <b id="against-count">0</b>
+          </header>
+          <div class="claim-list" id="against-claims"></div>
+        </article>
+
+        <aside class="panel">
+          <div class="verdict">
+            <span>verdict</span>
+            <strong id="verdict">-</strong>
+          </div>
+          <div class="meter">
+            <span>asymmetry</span>
+            <div><i id="asymmetry-bar"></i></div>
+            <b id="asymmetry">-</b>
+          </div>
+          <div class="crux">
+            <span>crux</span>
+            <p id="crux">Waiting for the judge.</p>
+          </div>
+          <div class="resolver">
+            <span>resolver</span>
+            <p id="resolver">-</p>
+          </div>
+        </aside>
+      </section>
+
+      <section class="evidence">
+        <header>
+          <h2>Evidence Stream</h2>
+          <div class="counts">
+            <span><b id="snippet-count">0</b> retrieved</span>
+            <span><b id="support-count">0</b> supports</span>
+            <span><b id="refute-count">0</b> refutes</span>
+            <span><b id="neutral-count">0</b> neutral</span>
+          </div>
+        </header>
+        <div class="evidence-list" id="evidence-list"></div>
+      </section>
+
+      <section class="events">
+        <header>
+          <h2>Run Log</h2>
+          <button id="clear-button" type="button">Clear</button>
+        </header>
+        <ol id="event-log"></ol>
+      </section>
+    </main>
+
+    <template id="claim-template">
+      <div class="argument">
+        <p></p>
+        <div class="cites"></div>
+      </div>
+    </template>
+
+    <template id="paper-template">
+      <article class="paper">
+        <div>
+          <b></b>
+          <p></p>
+        </div>
+        <span></span>
+      </article>
+    </template>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
