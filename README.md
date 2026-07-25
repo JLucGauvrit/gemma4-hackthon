@@ -32,22 +32,24 @@ for operational findings.
 
 ## Docker
 
-Docker Compose runs vLLM and the CLI application as separate services. Set
-`VLLM_MODEL` to the Hugging Face identifier of the Gemma checkpoint to serve;
-set `HUGGING_FACE_HUB_TOKEN` too if the model is gated. OAuth refresh tokens
-are persisted in a named volume and are never copied into the image.
+Docker Compose runs vLLM, the agent API, and Open WebUI as separate services.
+It serves `google/gemma-3-4b-it` by default. To use another Gemma checkpoint,
+copy `.env.example` to `.env` and set `VLLM_MODEL`; set `HF_TOKEN` too if the
+model is gated. OAuth refresh tokens are
+persisted in a named volume and are never copied into the image.
 
 ```bash
-export VLLM_MODEL=<gemma-checkpoint-id>
-docker compose up -d vllm
-docker compose run --rm app python -m core.mcp_client openaire
+cp .env.example .env
 docker compose up -d
+docker compose run --rm app python -m core.mcp_client openaire
 ```
 
 The OAuth callback is bound to `127.0.0.1:8765` on the host, so authorize from
-the same machine running Compose. The `vllm` service requests all available
-NVIDIA GPUs; remove the `deploy.resources.reservations.devices` block when
-running without NVIDIA Container Toolkit (inference will then use CPU).
+the same machine running Compose. The `app` service starts only after vLLM's
+`/health` endpoint answers; Open WebUI starts only after the agent API answers.
+The `vllm` service requests all available NVIDIA GPUs; remove the
+`deploy.resources.reservations.devices` block when running without NVIDIA
+Container Toolkit (inference will then use CPU).
 
 Open WebUI is available at `http://localhost:3000`. It is preconfigured to use
 the `app` service through its OpenAI-compatible API; select the
