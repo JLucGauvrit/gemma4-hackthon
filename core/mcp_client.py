@@ -62,8 +62,16 @@ async def _redirect(url: str) -> None:
     webbrowser.open(url)
 
 
+CALLBACK_TIMEOUT = int(os.environ.get("DA_CALLBACK_TIMEOUT", "300"))
+
+
 async def _await_callback() -> tuple[str, str | None]:
-    """Serve exactly one localhost request to capture ?code=&state=."""
+    """Serve exactly one localhost request to capture ?code=&state=.
+
+    Bounded by CALLBACK_TIMEOUT: an abandoned auth attempt (browser tab closed
+    without authorizing) must not hold the fixed callback port forever and
+    block every later attempt with 'Address already in use'.
+    """
     captured: dict[str, str | None] = {}
 
     class Handler(BaseHTTPRequestHandler):
@@ -81,8 +89,15 @@ async def _await_callback() -> tuple[str, str | None]:
 
     def serve_one():
         srv = HTTPServer((CALLBACK_BIND_HOST, CALLBACK_PORT), Handler)
-        srv.handle_request()
-        srv.server_close()
+        srv.timeout = CALLBACK_TIMEOUT
+        try:
+            srv.handle_request()
+        finally:
+            srv.server_close()
+        if "code" not in captured:
+            raise TimeoutError(
+                f"No OAuth callback received on :{CALLBACK_PORT} within {CALLBACK_TIMEOUT}s"
+            )
 
     await asyncio.to_thread(serve_one)
     return captured.get("code", ""), captured.get("state")
