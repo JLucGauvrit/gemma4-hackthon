@@ -1,0 +1,36 @@
+
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    volumes:
+      - ollama-models:/root/.ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  app:
+    build:
+      context: .
+    environment:
+      OLLAMA_URL: http://ollama:11434
+      DA_TOKEN_DIR: /home/app/.devils_advocates
+      # The browser redirects to localhost:8765 on the host; Docker forwards it here.
+      DA_CALLBACK_BIND_HOST: 0.0.0.0
+    depends_on:
+      - ollama
+    ports:
+      - "127.0.0.1:8765:8765"
+    volumes:
+      - oauth-tokens:/home/app/.devils_advocates
+    stdin_open: true
+    tty: true
+    command: ["python", "-m", "core.pipeline", "--selfcheck"]
+
+volumes:
+  ollama-models:
+  oauth-tokens:

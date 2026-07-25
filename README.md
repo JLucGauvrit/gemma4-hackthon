@@ -32,6 +32,24 @@ for operational findings.
    uv run python -m core.pipeline --selfcheck
    ```
 
+## Docker
+
+Docker Compose runs Ollama and the CLI application as separate services. The
+model cache and OAuth refresh tokens are persisted in named volumes; neither is
+copied into the image.
+
+```bash
+docker compose up -d ollama
+docker compose exec ollama ollama pull gemma4:e4b
+docker compose run --rm app python -m core.mcp_client openaire
+docker compose run --rm app python -m core.pipeline "does creatine improve cognition in healthy adults?"
+```
+
+The OAuth callback is bound to `127.0.0.1:8765` on the host, so authorize from
+the same machine running Compose. The `ollama` service requests all available
+NVIDIA GPUs; remove the `deploy.resources.reservations.devices` block when
+running without NVIDIA Container Toolkit (inference will then use CPU).
+
 ## Run
 
 ```
