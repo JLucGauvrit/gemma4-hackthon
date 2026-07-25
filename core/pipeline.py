@@ -7,12 +7,14 @@ OpenAIRE. The self-check covers the pure logic (enforcement, budgeting, the
 partition toggle, asymmetry, guardrail) with no model or network.
 
 Event shapes (dicts with a "type"):
+  {"type": "phase", "phase": "opening"|"rebuttal"|"judging"}
   {"type": "claim_text", "claim": str}
   {"type": "snippet", "snippet": Snippet}
-  {"type": "stance", "id": str, "stance": Stance}
+  {"type": "stance", "id": str, "stance": Stance, "confidence": float, "reason": str}
   {"type": "partition", "for": [id...], "against": [id...]}
   {"type": "turn_claim", "side": "FOR"|"AGAINST", "round": int, "claim": Claim}
   {"type": "violation", "side": ..., "claim": str, "reason": str}
+  {"type": "insufficient_evidence", "on_topic": int, "reason": str}
   {"type": "crux", "crux": str, "crux_type": CruxType, "resolver": str}
   {"type": "brief", "brief": Brief}          # terminal event
 """
@@ -83,12 +85,14 @@ async def retrieve(query: str, cfg: Config) -> list[Snippet]:
 
 
 async def classify_stance(claim: str, snips: list[Snippet], cfg: Config) -> list[Snippet]:
-    """3-way stance of each abstract vs the claim, in small parallel batches.
+    """4-way stance of each abstract vs the claim, in small parallel batches.
 
     One mega-batch is the trap: Gemma+Ollama JSON-mode collapses ~24 items to a
     single object, so 23 snippets silently default NEUTRAL and every real claim
     misroutes to OUT_OF_SCOPE. Fix: batch small, then backfill any id the model
-    dropped by re-asking it alone (a 1-item prompt can't collapse)."""
+    dropped by re-asking it alone (a 1-item prompt can't collapse). Directional
+    labels are also rechecked one-at-a-time because false positives determine the
+    partition and can manufacture a consensus."""
     async def classify(batch: list[Snippet]) -> dict[str, dict]:
         if not batch:
             return {}
@@ -106,13 +110,21 @@ async def classify_stance(claim: str, snips: list[Snippet], cfg: Config) -> list
     for res in await asyncio.gather(*(classify([s]) for s in missing)):
         by_id.update(res)
 
-    valid = {"SUPPORTS", "REFUTES", "NEUTRAL"}
+    directional = [
+        s for s in snips
+        if by_id.get(s.id, {}).get("stance") in {"SUPPORTS", "REFUTES"}
+    ]
+    for res in await asyncio.gather(*(classify([s]) for s in directional)):
+        by_id.update(res)
+
+    valid = {"SUPPORTS", "REFUTES", "UNRESOLVED", "NEUTRAL"}
     for s in snips:
         d = by_id.get(s.id, {})
         st = d.get("stance", "NEUTRAL")
         s.stance = st if st in valid else "NEUTRAL"
         # models often omit confidence — default by whether they took a side
         s.confidence = float(d.get("confidence", 0.7 if s.stance != "NEUTRAL" else 0.3))
+        s.stance_reason = str(d.get("reason", "")).strip()
     return snips
 
 
@@ -131,15 +143,16 @@ def _normalize_stance(parsed) -> list[dict]:
 
 def budget(snips: list[Snippet], cfg: Config) -> tuple[list[Snippet], list[Snippet]]:
     """Top-k per side by confidence. partition ON (default) => disjoint piles.
-    shared_evidence => both advocates get the SAME full pile (the ablation)."""
-    def top(stance: Stance) -> list[Snippet]:
-        pool = [s for s in snips if s.stance == stance]
+    Unresolved evidence challenges accepting the claim but remains visibly distinct
+    from direct refutation. shared_evidence gives both advocates the same full pile."""
+    def top(stances: set[Stance]) -> list[Snippet]:
+        pool = [s for s in snips if s.stance in stances]
         return sorted(pool, key=lambda s: s.confidence, reverse=True)[: cfg.top_k_per_side]
 
     if cfg.shared_evidence:                       # partition OFF — control
-        shared = top("SUPPORTS") + top("REFUTES")
+        shared = top({"SUPPORTS"}) + top({"REFUTES", "UNRESOLVED"})
         return shared, shared
-    return top("SUPPORTS"), top("REFUTES")        # partition ON — the debate
+    return top({"SUPPORTS"}), top({"REFUTES", "UNRESOLVED"})
 
 
 def _enforce_cites(claim: Claim, allowed: set[str]) -> tuple[Claim | None, str | None]:
@@ -200,14 +213,16 @@ def _asymmetry(for_pile: list[Snippet], against_pile: list[Snippet]) -> float:
 
 
 def route(for_n: int, against_n: int, asymmetry: float, cfg: Config) -> Verdict:
-    """The three-way branch, as a pure function so the self-check can pin it.
+    """The post-retrieval branch, as a pure function so the self-check can pin it.
     Too little evidence => refuse. A real body of evidence on one side with at
     most a lone dissenter on the other (or a very lopsided confidence weight) =>
     consensus. Two independent papers each side => debate. The lone-dissenter
     rule is what survives a single spurious stance classification."""
     if for_n + against_n < cfg.min_evidence:
-        return "OUT_OF_SCOPE"
+        return "INSUFFICIENT_EVIDENCE"
     lo, hi = min(for_n, against_n), max(for_n, against_n)
+    if lo < cfg.min_side and hi < cfg.min_consensus_evidence and lo != hi:
+        return "INSUFFICIENT_EVIDENCE"
     if asymmetry >= cfg.consensus_asymmetry or lo < cfg.min_side <= hi:
         return "CONSENSUS"
     return "CONTESTED"
@@ -251,12 +266,24 @@ async def run(question: str, cfg: Config | None = None,
     yield {"type": "claim_text", "claim": claim, "query": query}
 
     snips = await retrieve(query, cfg)
+    # Search results are often truncated before the result sentence. Classification
+    # must see the full abstract; enriching only after partitioning makes the stance
+    # decision from an introduction and then locks that mistake into both piles.
+    from core.retrieve import enrich_full_abstracts
+    enriched = await enrich_full_abstracts(snips)
+    yield {"type": "enriched", "count": enriched or 0}
     for s in snips:
         yield {"type": "snippet", "snippet": s}
 
     snips = await classify_stance(claim, snips, cfg)
     for s in snips:
-        yield {"type": "stance", "id": s.id, "stance": s.stance}
+        yield {
+            "type": "stance",
+            "id": s.id,
+            "stance": s.stance,
+            "confidence": s.confidence,
+            "reason": s.stance_reason,
+        }
 
     for_pile, against_pile = budget(snips, cfg)
     yield {"type": "partition",
@@ -266,25 +293,47 @@ async def run(question: str, cfg: Config | None = None,
     on_topic = len(for_pile) + len(against_pile)
     asymmetry = _asymmetry(for_pile, against_pile)
     verdict = route(len(for_pile), len(against_pile), asymmetry, cfg)
+    oos_reason = (
+        "Not enough directional or unresolved evidence to construct a sourced "
+        "debate from this retrieval."
+    )
+    if verdict == "CONSENSUS":
+        dom_is_for = sum(s.confidence for s in for_pile) >= sum(
+            s.confidence for s in against_pile
+        )
+        dominant = for_pile if dom_is_for else against_pile
+        direct_stance = "SUPPORTS" if dom_is_for else "REFUTES"
+        direct_count = sum(s.stance == direct_stance for s in dominant)
+        if direct_count < cfg.min_consensus_evidence:
+            verdict = "INSUFFICIENT_EVIDENCE"
+            oos_reason = (
+                "The retrieved evidence is predominantly unresolved; it does not "
+                "contain enough direct results to claim scientific consensus."
+            )
     yield {"type": "verdict", "verdict": verdict}
 
-    if verdict == "OUT_OF_SCOPE":
-        yield {"type": "out_of_scope", "on_topic": on_topic}
+    if verdict == "INSUFFICIENT_EVIDENCE":
+        yield {
+            "type": "insufficient_evidence",
+            "on_topic": on_topic,
+            "reason": oos_reason,
+        }
         yield {"type": "brief", "brief": _oos_brief(
-            claim, "Not enough on-topic evidence to construct a debate — this may "
-            "not be a contested scientific claim.", t0, cfg, on_topic)}
+            claim, oos_reason, t0, cfg, on_topic,
+            resolver=(
+                "Broaden retrieval or add direct intervention results before "
+                "asking the advocates to take sides."
+            ),
+            verdict="INSUFFICIENT_EVIDENCE")}
         return
 
     if verdict == "CONSENSUS":
         # One-sided evidence: report the sourced consensus + any real dissent.
         # Weighted-heavier pile is the consensus direction.
-        from core.retrieve import enrich_full_abstracts
         dom_is_for = sum(s.confidence for s in for_pile) >= sum(s.confidence for s in against_pile)
         dominant = for_pile if dom_is_for else against_pile
         minority = against_pile if dom_is_for else for_pile
         dom_stance: Stance = "SUPPORTS" if dom_is_for else "REFUTES"
-        await enrich_full_abstracts(dominant)
-        yield {"type": "enriched", "count": len(dominant)}
         c = await summarize_consensus(claim, dominant, dom_stance, cfg)
         yield {"type": "crux", "crux": c["statement"], "crux_type": "none",
                "resolver": c["dissent"]}
@@ -301,15 +350,10 @@ async def run(question: str, cfg: Config | None = None,
             verdict="CONSENSUS")}
         return
 
-    # CONTESTED: upgrade the partitioned snippets to FULL abstracts before the advocates
-    # argue — the search endpoint truncates before the result sentence.
-    from core.retrieve import enrich_full_abstracts
-    await enrich_full_abstracts(for_pile + against_pile)
-    yield {"type": "enriched", "count": len(for_pile) + len(against_pile)}
-
     # Two advocates stream in parallel, interleaved into one event stream.
     for_claims: list[Claim] = []
     against_claims: list[Claim] = []
+    yield {"type": "phase", "phase": "opening"}
     streams = [
         advocate("FOR", claim, for_pile, 0, cfg),
         advocate("AGAINST", claim, against_pile, 0, cfg),
@@ -324,6 +368,26 @@ async def run(question: str, cfg: Config | None = None,
         Turn(agent="AGAINST", round=0, claims=against_claims),
     ]
 
+    if cfg.rebuttal:
+        for_rebuttals: list[Claim] = []
+        against_rebuttals: list[Claim] = []
+        yield {"type": "phase", "phase": "rebuttal"}
+        rebuttal_streams = [
+            advocate("FOR", claim, for_pile, 1, cfg, opponent=against_claims),
+            advocate("AGAINST", claim, against_pile, 1, cfg, opponent=for_claims),
+        ]
+        async for ev in _merge(rebuttal_streams):
+            if ev["type"] == "turn_claim":
+                (for_rebuttals if ev["side"] == "FOR" else against_rebuttals).append(
+                    ev["claim"]
+                )
+            yield ev
+        transcript.extend([
+            Turn(agent="FOR", round=1, claims=for_rebuttals),
+            Turn(agent="AGAINST", round=1, claims=against_rebuttals),
+        ])
+
+    yield {"type": "phase", "phase": "judging"}
     v = await judge(claim, transcript, for_pile, against_pile, cfg)
     yield {"type": "crux", "crux": v["crux"],
            "crux_type": v["crux_type"], "resolver": v["resolver"]}
@@ -383,18 +447,23 @@ def _clean_query(q) -> str:
     return " ".join(str(q).split()[:3])
 
 
-def _oos_brief(claim: str, reason: str, t0: float, cfg: Config, on_topic: int = 0) -> Brief:
+def _oos_brief(claim: str, reason: str, t0: float, cfg: Config, on_topic: int = 0,
+               resolver: str = "Try a specific, testable scientific claim.",
+               verdict: Verdict = "OUT_OF_SCOPE") -> Brief:
     """The OUT_OF_SCOPE Brief — reached from intake (not a claim) or the post-
     retrieval floor (a claim, but no evidence). Same shape either way."""
     return Brief(
         claim=claim,
         position_for=Position("", [], []), position_against=Position("", [], []),
         crux=reason, crux_type="none",
-        resolver="Try a specific, testable scientific claim.",
+        resolver=resolver,
         asymmetry=1.0, transcript=[],
         meta={"latency_s": round(time.perf_counter() - t0, 3),
-              "tiers": cfg.tiers, "out_of_scope": True, "on_topic": on_topic},
-        verdict="OUT_OF_SCOPE",
+              "tiers": cfg.tiers,
+              "out_of_scope": verdict == "OUT_OF_SCOPE",
+              "insufficient_evidence": verdict == "INSUFFICIENT_EVIDENCE",
+              "on_topic": on_topic},
+        verdict=verdict,
     )
 
 
@@ -429,31 +498,53 @@ def _consensus_prompt(claim, snips, dominant_stance):
 
 
 def _advocate_prompt(side, claim, partition, opponent):
-    ev = "\n".join(f"[{s.id}] {s.text}" for s in partition)
-    opp = "" if not opponent else "\nOpponent claims (rebut, do not cite their evidence):\n" + \
-        "\n".join(f"- {c.text}" for c in opponent)
+    ev = "\n".join(f"[{s.id}] ({s.stance}) {s.text}" for s in partition)
+    if opponent:
+        task = (
+            "Respond directly to the opponent's claims. Identify the specific point "
+            "their evidence does not establish, while citing only your own evidence."
+        )
+        opp = "\nOpponent opening claims:\n" + "\n".join(
+            f"- {c.text}" for c in opponent
+        )
+    else:
+        task = f"Present the strongest opening case {side} the claim."
+        opp = ""
+    uncertainty_rule = (
+        " An UNRESOLVED source supports withholding acceptance of the claim; it does "
+        "NOT show no effect. Describe that distinction explicitly."
+        if side == "AGAINST"
+        else ""
+    )
     return (f"You argue {side} the claim: {claim}\n"
-            f"Make 2-3 short claims, each grounded in the evidence below. Cite ONLY "
+            f"{task}{uncertainty_rule}\n"
+            f"Make 1-2 short claims, each grounded in the evidence below. Cite ONLY "
             f"these snippet ids using the bare id (e.g. s1). Every claim needs ≥1 "
-            f"cite. Argue the strongest {side} case the evidence allows.\n{ev}{opp}\n"
+            f"cite. Do not overstate what the population or result establishes.\n"
+            f"{ev}{opp}\n"
             'Return a JSON list ONLY: [{"text": "<claim>", "cites": ["s1"]}]')
 
 
 def _stance_prompt(claim, snips):
     items = "\n".join(f'[{s.id}] {s.text[:600]}' for s in snips)
     return (f"Claim: {claim}\nClassify each snippet's stance toward THIS claim.\n"
-            "SUPPORTS = evidence the claim is TRUE (a positive/significant effect in "
-            "the claimed direction).\n"
-            "REFUTES = evidence the claim is FALSE. This INCLUDES null results, "
-            "'no significant effect', 'no benefit', 'did not improve', failure to "
-            "replicate, and effects only in a narrow subgroup (i.e. NOT in the "
-            "general population the claim states). A study that finds nothing is "
-            "evidence AGAINST — mark it REFUTES, never NEUTRAL.\n"
-            "NEUTRAL = ONLY when the snippet is about a different intervention or a "
-            "different outcome (genuinely off-topic). Do NOT use NEUTRAL for a "
-            "weak, mixed, or null on-topic finding — that is REFUTES.\n"
+            "SUPPORTS = a positive effect in the claimed direction. A result in a "
+            "narrower population supports only that subgroup; lower confidence when "
+            "the claim names a broader population.\n"
+            "REFUTES = a direct null, opposite, or harmful result for the SAME "
+            "intervention, outcome, and claimed population. 'No significant effect', "
+            "'no benefit', 'did not improve', or a failed replication can REFUTE when "
+            "they report an actual result, not merely a lack of research.\n"
+            "UNRESOLVED = on-topic but epistemically unresolved. Reviews saying "
+            "INSUFFICIENT evidence, too few/low-quality studies, mixed findings, or "
+            "that no conclusion can be drawn do not show the claim true or false. "
+            "They are UNRESOLVED, not REFUTES.\n"
+            "NEUTRAL = genuinely off-topic: a different intervention or outcome.\n"
             f"{items}\n"
-            'Return a JSON list: [{"id": "s1", "stance": "SUPPORTS", "confidence": 0.8}]')
+            "Give one short reason quoting or closely paraphrasing the result that "
+            "determined the label.\n"
+            'Return a JSON list: [{"id":"s1","stance":"SUPPORTS",'
+            '"confidence":0.8,"reason":"reported improved memory in healthy adults"}]')
 
 
 def _judge_prompt(claim, transcript):
@@ -522,8 +613,8 @@ async def _main(question: str, interactive: bool = True):
             print(f"  {ev['side']:<7} {c.text}  cites={c.cites}")
         elif ev["type"] == "violation":
             print(f"  DROP    {ev['side']} '{ev['claim']}' — {ev['reason']}")
-        elif ev["type"] == "out_of_scope":
-            print(f"  (only {ev['on_topic']} on-topic sources — not enough to debate)")
+        elif ev["type"] in {"out_of_scope", "insufficient_evidence"}:
+            print(f"  ({ev['on_topic']} on-topic items — {ev['reason']})")
 
 
 def _selfcheck():
@@ -561,7 +652,8 @@ def _selfcheck():
 
     # three-way route: too little => OOS, lone-dissenter/one-sided => CONSENSUS, else debate
     cfg = Config()
-    assert route(1, 0, 0.0, cfg) == "OUT_OF_SCOPE", "below min_evidence must refuse"
+    assert route(1, 0, 0.0, cfg) == "INSUFFICIENT_EVIDENCE", "below evidence floor must refuse"
+    assert route(2, 0, 1.0, cfg) == "INSUFFICIENT_EVIDENCE", "thin one-sided evidence is not consensus"
     assert route(5, 5, 0.03, cfg) == "CONTESTED", "both sides well-represented => debate"
     assert route(4, 3, 0.21, cfg) == "CONTESTED", "≥2 on the minority side => debate"
     assert route(5, 1, 0.62, cfg) == "CONSENSUS", "a lone dissenter is not a controversy"

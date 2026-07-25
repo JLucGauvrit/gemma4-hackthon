@@ -81,14 +81,27 @@ deployment. To serve two models, set `VLLM_MODEL_E2B` and `VLLM_MODEL_E4B`;
 
 ## Live UI
 
-Serve the dependency-free live UI:
+Build the teammate's React UI once, then serve it with the debate API:
 
 ```
+cd frontend
+npm ci
+npm run build
+cd ..
 uv run python -m api.server
 ```
 
 Then open `http://127.0.0.1:8765`. The UI calls the real pipeline through
-server-sent events; it does not use mocked results.
+server-sent events; it does not use mocked results. The Python server serves
+`frontend/dist` and the API from the same public port, so this is also the
+production build sequence.
+
+For frontend development, run the API and Vite in separate terminals:
+
+```
+uv run python -m api.server
+cd frontend && npm run dev
+```
 
 ### Example queries
 
@@ -111,9 +124,9 @@ Nonsense → guardrail, honest out-of-scope:
 ## How it works
 
 ```
-question → extract (claim + search query) → retrieve (OpenAIRE, live)
-        → classify stance (SUPPORTS/REFUTES/NEUTRAL) → partition evidence
-        → FOR advocate ‖ AGAINST advocate  (each sees only its own pile)
+question → extract (claim + search query) → retrieve + enrich (OpenAIRE, live)
+        → classify stance (SUPPORTS/REFUTES/UNRESOLVED/NEUTRAL)
+        → partition evidence → FOR/AGAINST openings → cross-rebuttals
         → judge → disagreement brief (crux, resolver, asymmetry)
 ```
 
