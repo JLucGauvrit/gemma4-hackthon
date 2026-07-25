@@ -30,6 +30,7 @@ SERVERS = {
 }
 
 CALLBACK_PORT = int(os.environ.get("DA_CALLBACK_PORT", "8765"))
+CALLBACK_BIND_HOST = os.environ.get("DA_CALLBACK_BIND_HOST", "localhost")
 REDIRECT_URI = f"http://localhost:{CALLBACK_PORT}/callback"
 TOKEN_DIR = Path(os.environ.get("DA_TOKEN_DIR", Path.home() / ".devils_advocates"))
 
@@ -79,7 +80,7 @@ async def _await_callback() -> tuple[str, str | None]:
             pass
 
     def serve_one():
-        srv = HTTPServer(("localhost", CALLBACK_PORT), Handler)
+        srv = HTTPServer((CALLBACK_BIND_HOST, CALLBACK_PORT), Handler)
         srv.handle_request()
         srv.server_close()
 
