@@ -14,11 +14,13 @@ Pipeline (all in `core/pipeline.py`, stream-first async generator):
 
 ```
 intake (claim | clarify | out-of-scope)   ← interactive front gate
- → retrieve (OpenAIRE, live) → classify_stance (batched + backfill)
- → budget (partition, top-k/side) → route (3-way verdict)
-     ├─ OUT_OF_SCOPE  (< min_evidence on-topic)      → honest refusal
+ → retrieve (OpenAIRE, live) → enrich full abstracts
+ → classify_stance (4-way, batched + backfill + directional verification)
+ → budget (partition, top-k/side) → route (4-way verdict)
+     ├─ OUT_OF_SCOPE  (not a testable scientific claim) → honest refusal
+     ├─ INSUFFICIENT_EVIDENCE (valid claim, weak/unresolved corpus) → honest refusal
      ├─ CONSENSUS     (lone dissenter / one-sided)   → sourced consensus + dissent
-     └─ CONTESTED     → enrich → FOR ‖ AGAINST advocates → judge (crux) → Brief
+     └─ CONTESTED     → openings → cross-rebuttals → judge (crux) → Brief
 ```
 
 **Demo triad — empirically verified (run through the live pipeline, not guessed):**
@@ -29,8 +31,9 @@ intake (claim | clarify | out-of-scope)   ← interactive front gate
 | CONSENSUS | does smoking cause lung cancer? | 5/1 → lone-dissenter rule; sourced "established by [s3][s5]" + dissent note |
 | OUT_OF_SCOPE | how many windows are in Paris? | refused at intake, no retrieval |
 
-Also verified CONTESTED: creatine→cognition (4/3), omega-3→CVD (5/5),
-intermittent-fasting (leans FOR, one dissenter). ~30–45s/run at E2B/E4B tiers.
+Live retrieval/model output varies by run. Creatine→cognition is the regression
+case for distinguishing direct null results from unresolved reviews; do not use
+an old source count as a fixed demo fixture.
 
 ## Architecture decisions (locked — do not re-litigate)
 
@@ -41,21 +44,26 @@ intermittent-fasting (leans FOR, one dissenter). ~30–45s/run at E2B/E4B tiers.
    refuses non-claims before burning retrieval + 3 model calls. Non-interactive
    callers (`ask=None`: eval, notebook) fall through to a best-guess `extract()`.
    Bounded for-loop, not a graph runtime — no LangGraph.
-3. **Tri-state `verdict`** on the Brief (`route()`, a pure function):
-   OUT_OF_SCOPE / CONSENSUS / CONTESTED. CONSENSUS is a positive sourced output,
-   not a shrug — the consensus statement cites the papers that establish it.
-4. **A lone dissenter is not a controversy.** Consensus fires when one side has
-   ≥ `min_side` (2) papers and the other has ≤1 (or confidence-weighted
-   asymmetry ≥ 0.85). This survives a single spurious stance classification —
-   without it, settled claims like smoking wrongly showed as debates.
-5. **Partition ON by default**, `Config.shared_evidence` flips it OFF. That flag
+3. **Four-state `verdict`** on the Brief: OUT_OF_SCOPE is reserved for invalid
+   inputs; INSUFFICIENT_EVIDENCE means the claim is valid but retrieval cannot
+   support a debate or consensus; CONSENSUS and CONTESTED are sourced outputs.
+4. **Stance and debate side are distinct.** SUPPORTS feeds FOR. REFUTES and
+   UNRESOLVED feed AGAINST, but stay visibly distinct: unresolved evidence
+   challenges accepting the claim without pretending a null effect was observed.
+   NEUTRAL is reserved for genuinely off-topic material.
+5. **Thin evidence is not consensus.** A one-sided pile needs at least
+   `min_consensus_evidence` (4) direct SUPPORTS/REFUTES results. Unresolved
+   reviews cannot establish consensus regardless of their count.
+6. **Partition ON by default**, `Config.shared_evidence` flips it OFF. That flag
    IS the Track-03 ablation (run twice, diff).
-6. **Tier-per-role is `Config.tiers`** (a dict). Default = E2B workers + E4B judge.
+7. **Tier-per-role is `Config.tiers`** (a dict). Default = E2B workers + E4B judge.
    `GEMMA_MODEL=gemma4:e4b` forces all-E4B (Track-02 fallback). No code change.
-7. **OpenAIRE full abstracts** are the evidence (search → get_details). medRxiv
-   full-text is the next source, not yet wired.
-8. **Single judge** in v1 (no swap-and-merge yet).
-9. **Provenance enforced in code** — a claim citing outside its partition is
+8. **OpenAIRE full abstracts** are fetched before stance classification. The
+   search payload often ends before the result sentence.
+9. **Advocates exchange one rebuttal round.** Each sees the opponent's opening
+   claims but may still cite only its own evidence partition.
+10. **Single judge** in v1 (no swap-and-merge yet).
+11. **Provenance enforced in code** — a claim citing outside its partition is
    dropped (`_enforce_cites`), never trusted to the model's taste.
 
 ## Files
@@ -76,10 +84,9 @@ intermittent-fasting (leans FOR, one dissenter). ~30–45s/run at E2B/E4B tiers.
   OUT_OF_SCOPE. Fix (in place): classify in batches of `stance_batch` (6) and
   backfill any dropped id one-at-a-time (a 1-item prompt can't collapse). Do not
   revert to a single mega-batch.
-- **Stance REFUTES recall needs spelling out.** Null / "no significant effect" /
-  "did not improve" results are evidence AGAINST — the prompt says so explicitly.
-  Without it the classifier calls them NEUTRAL and genuine debates look one-sided
-  (creatine came back a false 5–0 before this).
+- **Direct null and unresolved evidence are different.** A same-population null
+  result is REFUTES. "Insufficient evidence" or mixed/low-quality literature is
+  UNRESOLVED: it can challenge accepting the claim but cannot prove no effect.
 - **Local models don't return the JSON shape you ask for.** Every parser is
   deliberately tolerant (`extract`, `_parse_claims`, `_normalize_stance`, intake,
   consensus, `judge`). Keep them tolerant — don't "clean up" into strict access.
@@ -89,7 +96,8 @@ intermittent-fasting (leans FOR, one dissenter). ~30–45s/run at E2B/E4B tiers.
 - **OpenAIRE search is keyword-AND** — cap the query to ~3 terms or it collapses
   to 0–1 results. `sort=relevance`, NOT influence.
 - **Search abstracts are truncated ~500 chars**; `get_research_product_details`
-  gives the full abstract. Advocates + consensus need it (`enrich_full_abstracts`).
+  gives the full abstract. Classification must happen after
+  `enrich_full_abstracts`, or it often misses the result sentence.
 - **The standalone app cannot use Claude's plugin MCP tools** — it has its own
   OAuth client (`mcp_client.py`). Tokens cached under `~/.devils_advocates/`.
 
@@ -98,16 +106,14 @@ intermittent-fasting (leans FOR, one dissenter). ~30–45s/run at E2B/E4B tiers.
 1. **Eval harness** — the partition on/off ablation (`shared_evidence` flipped)
    over ~30 frozen claims. Clears the Track-03 cap; scoring-critical. Now
    unblocked — the pipeline produces real splits. §8 of PRD.
-2. **Streaming UI or notebook** — the events already stream (incl. `verdict`,
-   `clarify`); needs a consumer. Notebook = reproducibility floor; SSE
-   two-column UI + verdict banner = the wow demo.
-3. **Cached-fallback + `mode` (LIVE/CACHED)** for demo reliability (deployment
+2. **Cached-fallback + `mode` (LIVE/CACHED)** for demo reliability (deployment
    doc): live OpenAIRE is currently the only evidence path.
-4. **Stance precision polish** — 18/24 land NEUTRAL on some claims; off-topic
-   retrieval is the driver. keyword→vector two-step (BUILD_NOTES) if piles thin.
-5. **Judge swap-and-merge** (§4.4) — position-bias guard, still a single call.
+3. **Stance precision polish** — many papers remain NEUTRAL or UNRESOLVED on
+   some claims; off-topic retrieval is the driver. keyword→vector two-step
+   (BUILD_NOTES) if piles thin.
+4. **Judge swap-and-merge** (§4.4) — position-bias guard, still a single call.
 
 ## Deferred (agreed, not lost)
 
-medRxiv full-text · rebuttal round (PRD cut #1) · judge swap-and-merge ·
-query-widening on thin retrieval (§9) · LLMLingua compression (P2) · Brev deploy.
+medRxiv full-text · judge swap-and-merge · query-widening on thin retrieval
+(§9) · LLMLingua compression (P2) · Brev deploy.

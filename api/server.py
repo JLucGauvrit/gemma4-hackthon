@@ -70,6 +70,8 @@ class DemoHandler(BaseHTTPRequestHandler):
                 async for event in run(question, cfg):
                     self.wfile.write(_sse(str(event.get("type", "message")), event))
                     self.wfile.flush()
+                self.wfile.write(_sse("done", {"type": "done"}))
+                self.wfile.flush()
             except BrokenPipeError:
                 return
             except Exception as exc:

@@ -74,9 +74,9 @@ Nonsense → guardrail, honest out-of-scope:
 ## How it works
 
 ```
-question → extract (claim + search query) → retrieve (OpenAIRE, live)
-        → classify stance (SUPPORTS/REFUTES/NEUTRAL) → partition evidence
-        → FOR advocate ‖ AGAINST advocate  (each sees only its own pile)
+question → extract (claim + search query) → retrieve + enrich (OpenAIRE, live)
+        → classify stance (SUPPORTS/REFUTES/UNRESOLVED/NEUTRAL)
+        → partition evidence → FOR/AGAINST openings → cross-rebuttals
         → judge → disagreement brief (crux, resolver, asymmetry)
 ```
 

@@ -9,7 +9,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-Stance = Literal["SUPPORTS", "REFUTES", "NEUTRAL"]
+Stance = Literal["SUPPORTS", "REFUTES", "UNRESOLVED", "NEUTRAL"]
 
 CruxType = Literal[
     "population", "methodology", "timeframe",
@@ -18,7 +18,7 @@ CruxType = Literal[
 
 # The three things a question can turn out to be. Branches the whole pipeline
 # and the UI: a debate, a sourced consensus, or an honest refusal.
-Verdict = Literal["CONTESTED", "CONSENSUS", "OUT_OF_SCOPE"]
+Verdict = Literal["CONTESTED", "CONSENSUS", "INSUFFICIENT_EVIDENCE", "OUT_OF_SCOPE"]
 
 
 @dataclass
@@ -39,6 +39,7 @@ class Snippet:
     stance: Stance
     confidence: float
     source: Source
+    stance_reason: str = ""  # classifier explanation surfaced for auditability
 
 
 @dataclass
@@ -72,7 +73,7 @@ class Brief:
     asymmetry: float  # 0.0 even split … 1.0 one-sided
     transcript: list[Turn]
     meta: dict = field(default_factory=dict)  # latency, tokens, tiers, config
-    verdict: Verdict = "CONTESTED"  # CONTESTED debate · CONSENSUS · OUT_OF_SCOPE
+    verdict: Verdict = "CONTESTED"
 
 
 # Default tier per role (PRD §6). "all E2B" = Track-03 purity run; bump to E4B
@@ -95,6 +96,7 @@ class Config:
     min_evidence: int = 2           # SUPPORTS+REFUTES floor; below => out-of-scope (§9)
     min_side: int = 2               # a debate needs ≥ this on the weaker side; a lone
                                     # dissenter => CONSENSUS (robust to 1 stance misclassification)
-    rebuttal: bool = False          # 1 rebuttal round — off in v1 (PRD cut #1)
+    min_consensus_evidence: int = 4 # fewer one-sided results => insufficient, not consensus
+    rebuttal: bool = True           # each advocate answers the other's opening claims
     consensus_asymmetry: float = 0.85  # asymmetry ≥ this => CONSENSUS, not a debate (§9)
     max_clarify: int = 2            # intake clarify bounces before best-guess fallback

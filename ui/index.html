@@ -45,7 +45,7 @@
       <section class="stage-grid">
         <article class="column for">
           <header>
-            <span>FOR</span>
+            <span>FOR the claim</span>
             <b id="for-count">0</b>
           </header>
           <div class="claim-list" id="for-claims"></div>
@@ -53,7 +53,7 @@
 
         <article class="column against">
           <header>
-            <span>AGAINST</span>
+            <span>AGAINST the claim</span>
             <b id="against-count">0</b>
           </header>
           <div class="claim-list" id="against-claims"></div>
@@ -65,7 +65,7 @@
             <strong id="verdict">-</strong>
           </div>
           <div class="meter">
-            <span>asymmetry</span>
+            <span title="0 = balanced evidence; 1 = evidence on only one side">evidence imbalance</span>
             <div><i id="asymmetry-bar"></i></div>
             <b id="asymmetry">-</b>
           </div>
@@ -87,6 +87,7 @@
             <span><b id="snippet-count">0</b> retrieved</span>
             <span><b id="support-count">0</b> supports</span>
             <span><b id="refute-count">0</b> refutes</span>
+            <span><b id="unresolved-count">0</b> unresolved</span>
             <span><b id="neutral-count">0</b> neutral</span>
           </div>
         </header>
@@ -104,6 +105,7 @@
 
     <template id="claim-template">
       <div class="argument">
+        <span class="argument-round"></span>
         <p></p>
         <div class="cites"></div>
       </div>
@@ -113,7 +115,9 @@
       <article class="paper">
         <div>
           <b></b>
-          <p></p>
+          <p class="paper-meta"></p>
+          <p class="paper-reason"></p>
+          <p class="paper-excerpt"></p>
         </div>
         <span></span>
       </article>

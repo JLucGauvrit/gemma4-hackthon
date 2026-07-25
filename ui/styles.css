@@ -226,6 +226,15 @@ button:disabled {
   animation: land 260ms ease-out;
 }
 
+.argument-round {
+  display: block;
+  margin-bottom: 7px;
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
 .for .argument {
   border-color: var(--for);
 }
@@ -351,6 +360,20 @@ button:disabled {
   font-size: 12px;
 }
 
+.paper .paper-reason {
+  color: var(--ink);
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.paper .paper-excerpt {
+  display: -webkit-box;
+  overflow: hidden;
+  line-height: 1.4;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+}
+
 .paper span {
   align-self: start;
   border: 1px solid var(--line);
@@ -366,6 +389,11 @@ button:disabled {
 .paper[data-stance="refutes"] span {
   border-color: var(--against);
   color: var(--against);
+}
+
+.paper[data-stance="unresolved"] span {
+  border-color: var(--gold);
+  color: #6b4307;
 }
 
 .paper[data-stance="neutral"] span {

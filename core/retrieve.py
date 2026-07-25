@@ -7,6 +7,7 @@ enhancement #1 (not here yet).
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 
@@ -86,24 +87,35 @@ async def retrieve_openaire(query: str, limit: int) -> list[Snippet]:
     return snippets
 
 
-async def enrich_full_abstracts(snips: list[Snippet]) -> None:
+async def enrich_full_abstracts(snips: list[Snippet]) -> int:
     """Upgrade truncated search abstracts to FULL abstracts via get_details.
     The search endpoint cuts abstracts at ~500 chars — right before the result
-    sentence. Advocates need the finding to argue. Called on the ~10 partitioned
-    snippets only (not all 24). Mutates in place; keeps the short one on failure."""
+    sentence. The stance classifier and advocates both need the finding. Mutates
+    in place; keeps the short version on failure. Returns the number upgraded."""
     targets = [s for s in snips if s.source.doi]
     if not targets:
-        return
+        return 0
+
     async with session("openaire") as s:
-        for snip in targets:
+        gate = asyncio.Semaphore(6)
+
+        async def enrich_one(snip: Snippet) -> bool:
             try:
-                res = await s.call_tool("openaire_get_research_product_details",
-                                        {"identifier": snip.source.doi, "response_format": "json"})
+                async with gate:
+                    res = await s.call_tool(
+                        "openaire_get_research_product_details",
+                        {"identifier": snip.source.doi, "response_format": "json"},
+                    )
                 abstract = _clean(_unwrap(tool_text(res)).get("data", {}).get("abstract") or "")
                 if len(abstract) > len(snip.text):
                     snip.text = abstract
+                    return True
             except Exception:
                 pass  # network / parse hiccup — keep the truncated abstract
+            return False
+
+        upgraded = await asyncio.gather(*(enrich_one(snip) for snip in targets))
+    return sum(upgraded)
 
 
 if __name__ == "__main__":  # smoke: needs one browser login the first time
